@@ -1,4 +1,4 @@
-# Databricks notebook source
+# Databricks notebook 
 
 # MAGIC %md
 # MAGIC # ML Config Loader
