@@ -1,8 +1,25 @@
 """
 Script to add incremental records to test SCD2 logic.
 This adds ~200 records including:
-- New employees (INSERT scenario)
-- Updated existing employees (UPDATE scenario for SCD2)
+- 120 updates to KNOWN existing employees (deterministic IDs for validation)
+- 80 new employees (INSERT scenario)
+
+SCD2 Validation:
+  After running this script + the ETL pipeline (incremental mode),
+  the Silver table should have:
+  - Updated employees: 2 rows each (old closed, new current)
+  - New employees: 1 row each (current)
+  - Unchanged employees: 1 row each (untouched)
+
+Specific IDs to verify after SCD2:
+  EMP000001 - EMP000010: PROMOTION (job title + salary changed)
+  EMP000011 - EMP000020: DEPARTMENT_TRANSFER (department + job title changed)
+  EMP000021 - EMP000030: SALARY_ADJUSTMENT (salary changed)
+  EMP000031 - EMP000040: STATUS_CHANGE (employment status changed)
+  EMP000041 - EMP000050: ADDRESS_CHANGE (address fields changed)
+  EMP000051 - EMP000060: MANAGER_CHANGE (manager_id changed)
+  EMP000061 - EMP000120: RANDOM update scenario
+  EMP004001 - EMP004080: NEW_HIRE (brand new records)
 """
 
 import snowflake.connector
@@ -52,8 +69,6 @@ JOB_TITLES = {
     "Administration": ["Administrative Assistant", "Office Manager", "Executive Assistant", "Facilities Manager", "COO"]
 }
 
-EMPLOYMENT_STATUS = ["Active", "Active", "Active", "On Leave", "Probation", "Terminated", "Resigned"]
-
 SALARY_RANGES = {
     "Junior": (45000, 70000),
     "Mid": (70000, 100000),
@@ -67,15 +82,21 @@ US_STATES = [
     "NJ", "VA", "WA", "AZ", "MA", "TN", "IN", "MO", "MD", "WI"
 ]
 
-# Update scenarios for SCD2 testing
-UPDATE_SCENARIOS = [
-    "promotion",           # Job title change + salary increase
-    "department_transfer", # Department change + possibly new job title
-    "salary_adjustment",   # Salary change only
-    "status_change",       # Employment status change (leave, termination)
-    "address_change",      # Address update
-    "manager_change",      # Reporting line change
-]
+# Deterministic update plan: specific IDs -> specific scenarios
+# This makes SCD2 validation predictable
+DETERMINISTIC_UPDATES = {
+    "promotion":           list(range(1, 11)),    # EMP000001 - EMP000010
+    "department_transfer": list(range(11, 21)),   # EMP000011 - EMP000020
+    "salary_adjustment":   list(range(21, 31)),   # EMP000021 - EMP000030
+    "status_change":       list(range(31, 41)),   # EMP000031 - EMP000040
+    "address_change":      list(range(41, 51)),   # EMP000041 - EMP000050
+    "manager_change":      list(range(51, 61)),   # EMP000051 - EMP000060
+}
+
+# Additional random updates for broader coverage
+RANDOM_UPDATE_IDS = list(range(61, 121))  # EMP000061 - EMP000120
+
+UPDATE_SCENARIOS = list(DETERMINISTIC_UPDATES.keys())
 
 
 def get_salary_level(job_title: str) -> str:
@@ -100,7 +121,6 @@ def generate_new_employee(employee_id: int) -> dict:
     salary_level = get_salary_level(job_title)
     salary_range = SALARY_RANGES[salary_level]
 
-    # New hires - within last 30 days
     days_employed = random.randint(1, 30)
     hire_date = datetime.now() - timedelta(days=days_employed)
     last_modified = datetime.now()
@@ -114,7 +134,7 @@ def generate_new_employee(employee_id: int) -> dict:
         "department": department,
         "job_title": job_title,
         "salary": round(random.uniform(*salary_range), 2),
-        "employment_status": "Probation",  # New hires start on probation
+        "employment_status": "Probation",
         "hire_date": hire_date.strftime("%Y-%m-%d"),
         "manager_id": f"EMP{random.randint(1, 500):06d}",
         "street_address": fake.street_address(),
@@ -133,18 +153,17 @@ def apply_update_scenario(record: dict, scenario: str) -> dict:
     updated["last_modified_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if scenario == "promotion":
-        # Promote to a higher position in same department
         current_dept = updated["department"]
-        titles = JOB_TITLES[current_dept]
+        titles = JOB_TITLES.get(current_dept, ["Manager"])
         current_idx = titles.index(updated["job_title"]) if updated["job_title"] in titles else 0
         if current_idx < len(titles) - 1:
             updated["job_title"] = titles[current_idx + 1]
-        # Salary increase 10-25%
+        else:
+            updated["job_title"] = titles[-1]
         updated["salary"] = round(float(updated["salary"]) * random.uniform(1.10, 1.25), 2)
         updated["change_type"] = "PROMOTION"
 
     elif scenario == "department_transfer":
-        # Move to a different department
         new_dept = random.choice([d for d in DEPARTMENTS if d != updated["department"]])
         updated["department"] = new_dept
         updated["job_title"] = random.choice(JOB_TITLES[new_dept])
@@ -152,12 +171,10 @@ def apply_update_scenario(record: dict, scenario: str) -> dict:
         updated["change_type"] = "TRANSFER"
 
     elif scenario == "salary_adjustment":
-        # Annual raise or market adjustment (3-8%)
         updated["salary"] = round(float(updated["salary"]) * random.uniform(1.03, 1.08), 2)
         updated["change_type"] = "SALARY_ADJUSTMENT"
 
     elif scenario == "status_change":
-        # Change employment status
         current_status = updated["employment_status"]
         if current_status == "Active":
             updated["employment_status"] = random.choice(["On Leave", "Terminated", "Resigned"])
@@ -165,10 +182,11 @@ def apply_update_scenario(record: dict, scenario: str) -> dict:
             updated["employment_status"] = "Active"
         elif current_status == "Probation":
             updated["employment_status"] = random.choice(["Active", "Terminated"])
+        else:
+            updated["employment_status"] = "Active"
         updated["change_type"] = "STATUS_CHANGE"
 
     elif scenario == "address_change":
-        # Employee relocated
         updated["street_address"] = fake.street_address()
         updated["city"] = fake.city()
         updated["state"] = random.choice(US_STATES)
@@ -176,15 +194,15 @@ def apply_update_scenario(record: dict, scenario: str) -> dict:
         updated["change_type"] = "ADDRESS_CHANGE"
 
     elif scenario == "manager_change":
-        # Reporting line change (reorg)
         updated["manager_id"] = f"EMP{random.randint(1, 500):06d}"
         updated["change_type"] = "MANAGER_CHANGE"
 
     return updated
 
 
-def get_existing_employees(cursor, sample_size: int = 120) -> list:
-    """Fetch a sample of existing employees to update."""
+def get_employees_by_ids(cursor, emp_ids: list) -> list:
+    """Fetch specific employees by their IDs."""
+    id_list = ", ".join([f"'EMP{eid:06d}'" for eid in emp_ids])
     query = f"""
     SELECT
         EMPLOYEE_ID, FIRST_NAME, LAST_NAME, EMAIL, PHONE,
@@ -192,9 +210,8 @@ def get_existing_employees(cursor, sample_size: int = 120) -> list:
         TO_CHAR(HIRE_DATE, 'YYYY-MM-DD') as HIRE_DATE,
         MANAGER_ID, STREET_ADDRESS, CITY, STATE, ZIP_CODE, COUNTRY
     FROM {TABLE_NAME}
-    WHERE EMPLOYMENT_STATUS NOT IN ('Terminated', 'Resigned')
-    ORDER BY RANDOM()
-    LIMIT {sample_size}
+    WHERE EMPLOYEE_ID IN ({id_list})
+    ORDER BY EMPLOYEE_ID
     """
     cursor.execute(query)
     columns = [desc[0].lower() for desc in cursor.description]
@@ -203,16 +220,11 @@ def get_existing_employees(cursor, sample_size: int = 120) -> list:
     for row in cursor.fetchall():
         record = dict(zip(columns, row))
         records.append(record)
-
     return records
 
 
 def upsert_records(cursor, records: list) -> None:
     """Update/Insert records into the table."""
-
-    # For SCD2 testing, we simply update the source table
-    # The SCD2 logic in the target system will handle the historical tracking
-
     update_sql = f"""
     UPDATE {TABLE_NAME} SET
         FIRST_NAME = %(first_name)s,
@@ -251,7 +263,6 @@ def upsert_records(cursor, records: list) -> None:
     updates = [r for r in records if r.get("change_type") != "NEW_HIRE"]
     inserts = [r for r in records if r.get("change_type") == "NEW_HIRE"]
 
-    # Remove change_type field before executing SQL
     for r in updates:
         r.pop("change_type", None)
     for r in inserts:
@@ -259,11 +270,11 @@ def upsert_records(cursor, records: list) -> None:
 
     if updates:
         cursor.executemany(update_sql, updates)
-        print(f"Updated {len(updates)} existing employee records")
+        print(f"  Updated {len(updates)} existing employee records")
 
     if inserts:
         cursor.executemany(insert_sql, inserts)
-        print(f"Inserted {len(inserts)} new employee records")
+        print(f"  Inserted {len(inserts)} new employee records")
 
 
 def main():
@@ -273,87 +284,101 @@ def main():
     print("=" * 60)
 
     print(f"\nConnecting to Snowflake...")
-    print(f"  Database: {SNOWFLAKE_CONFIG['database']}")
-    print(f"  Schema: {SNOWFLAKE_CONFIG['schema']}")
-    print(f"  Table: {TABLE_NAME}")
 
     try:
-        # Connect to Snowflake
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
-
         cursor.execute(f"USE SCHEMA {SNOWFLAKE_CONFIG['schema']}")
 
-        # Get current record count
+        # Current count
         cursor.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}")
         initial_count = cursor.fetchone()[0]
-        print(f"\nCurrent record count: {initial_count}")
+        print(f"Current record count: {initial_count}")
 
-        # Generate incremental changes
         all_changes = []
-
-        # 1. Fetch existing employees and apply updates (~120 updates)
-        print(f"\nFetching existing employees for updates...")
-        existing_employees = get_existing_employees(cursor, sample_size=120)
-        print(f"  Selected {len(existing_employees)} employees for updates")
-
-        # Apply various update scenarios
         update_summary = {}
-        for emp in existing_employees:
+
+        # ---- DETERMINISTIC UPDATES (specific IDs -> specific scenarios) ----
+        print(f"\n--- Deterministic Updates (for SCD2 validation) ---")
+        for scenario, emp_ids in DETERMINISTIC_UPDATES.items():
+            employees = get_employees_by_ids(cursor, emp_ids)
+            found = len(employees)
+            for emp in employees:
+                updated = apply_update_scenario(emp, scenario)
+                all_changes.append(updated)
+            update_summary[scenario] = found
+            id_range = f"EMP{emp_ids[0]:06d} - EMP{emp_ids[-1]:06d}"
+            print(f"  {scenario:25s}: {found:3d} records ({id_range})")
+
+        # ---- RANDOM UPDATES (broader coverage) ----
+        print(f"\n--- Random Updates (broader coverage) ---")
+        random_employees = get_employees_by_ids(cursor, RANDOM_UPDATE_IDS)
+        for emp in random_employees:
             scenario = random.choice(UPDATE_SCENARIOS)
-            updated_emp = apply_update_scenario(emp, scenario)
-            all_changes.append(updated_emp)
+            updated = apply_update_scenario(emp, scenario)
+            all_changes.append(updated)
             update_summary[scenario] = update_summary.get(scenario, 0) + 1
+        print(f"  Random updates: {len(random_employees)} records (EMP000061 - EMP000120)")
 
-        print(f"\n  Update scenarios applied:")
-        for scenario, count in sorted(update_summary.items()):
-            print(f"    - {scenario}: {count}")
+        total_updates = sum(1 for c in all_changes if c.get("change_type") != "NEW_HIRE")
 
-        # 2. Generate new employees (~80 new hires)
-        print(f"\nGenerating new employee records...")
+        # ---- NEW EMPLOYEES ----
+        print(f"\n--- New Employees ---")
         new_emp_start_id = initial_count + 1
         new_employees = [generate_new_employee(i) for i in range(new_emp_start_id, new_emp_start_id + 80)]
         all_changes.extend(new_employees)
-        print(f"  Generated {len(new_employees)} new employees (EMP{new_emp_start_id:06d} - EMP{new_emp_start_id + 79:06d})")
+        print(f"  New hires: {len(new_employees)} records (EMP{new_emp_start_id:06d} - EMP{new_emp_start_id + 79:06d})")
 
-        # 3. Apply all changes
+        # ---- APPLY ALL CHANGES ----
         print(f"\nApplying {len(all_changes)} total changes...")
         upsert_records(cursor, all_changes)
-
-        # Commit transaction
         conn.commit()
 
-        # Verify record count
+        # Verify
         cursor.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}")
         final_count = cursor.fetchone()[0]
-        print(f"\nFinal record count: {final_count}")
-        print(f"Net new records: {final_count - initial_count}")
 
-        # Show sample of recent changes
-        print(f"\nSample of recently modified records:")
+        # Show sample of updated records for validation
+        print(f"\n--- Sample: Promoted employees (verify in Silver after SCD2) ---")
         cursor.execute(f"""
-            SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, DEPARTMENT, JOB_TITLE,
-                   SALARY, EMPLOYMENT_STATUS, LAST_MODIFIED_DATE
+            SELECT EMPLOYEE_ID, DEPARTMENT, JOB_TITLE, SALARY, LAST_MODIFIED_DATE
             FROM {TABLE_NAME}
-            ORDER BY LAST_MODIFIED_DATE DESC
-            LIMIT 10
+            WHERE EMPLOYEE_ID IN ('EMP000001','EMP000002','EMP000003')
+            ORDER BY EMPLOYEE_ID
         """)
         for row in cursor.fetchall():
-            print(f"  {row[0]} | {row[1]} {row[2]} | {row[3]} | {row[4]} | ${row[5]:,.2f} | {row[6]} | {row[7]}")
+            print(f"  {row[0]} | {row[1]} | {row[2]} | ${row[3]:,.2f} | {row[4]}")
 
-        print("\n" + "=" * 60)
-        print("INCREMENTAL DATA GENERATION COMPLETE")
-        print("=" * 60)
-        print("\nSCD2 Test Scenarios Created:")
-        print(f"  - {len(new_employees)} new records (INSERT scenario)")
-        print(f"  - {len(existing_employees)} updated records (UPDATE scenario)")
-        print("\nUpdate types will trigger SCD2 history tracking:")
-        print("  - PROMOTION: New salary + title version")
-        print("  - TRANSFER: New department version")
-        print("  - SALARY_ADJUSTMENT: New salary version")
-        print("  - STATUS_CHANGE: New status version")
-        print("  - ADDRESS_CHANGE: New address version")
-        print("  - MANAGER_CHANGE: New manager version")
+        print(f"\n--- Sample: Transferred employees ---")
+        cursor.execute(f"""
+            SELECT EMPLOYEE_ID, DEPARTMENT, JOB_TITLE, LAST_MODIFIED_DATE
+            FROM {TABLE_NAME}
+            WHERE EMPLOYEE_ID IN ('EMP000011','EMP000012','EMP000013')
+            ORDER BY EMPLOYEE_ID
+        """)
+        for row in cursor.fetchall():
+            print(f"  {row[0]} | {row[1]} | {row[2]} | {row[3]}")
+
+        print(f"\n{'='*60}")
+        print(f"INCREMENTAL DATA GENERATION COMPLETE")
+        print(f"{'='*60}")
+        print(f"  Initial count:   {initial_count:,}")
+        print(f"  Final count:     {final_count:,}")
+        print(f"  Records updated: {total_updates}")
+        print(f"  Records inserted:{len(new_employees)}")
+        print(f"\nUpdate breakdown:")
+        for scenario, count in sorted(update_summary.items()):
+            print(f"    {scenario:25s}: {count}")
+        print(f"\nSCD2 Validation Guide:")
+        print(f"  After running ETL incremental pipeline:")
+        print(f"  1. EMP000001-EMP000010: should have 2 rows each (old+new) - PROMOTION")
+        print(f"  2. EMP000011-EMP000020: should have 2 rows each - DEPARTMENT_TRANSFER")
+        print(f"  3. EMP000021-EMP000030: should have 2 rows each - SALARY_ADJUSTMENT")
+        print(f"  4. EMP000031-EMP000040: should have 2 rows each - STATUS_CHANGE")
+        print(f"  5. EMP000041-EMP000050: should have 2 rows each - ADDRESS_CHANGE")
+        print(f"  6. EMP000051-EMP000060: should have 2 rows each - MANAGER_CHANGE")
+        print(f"  7. EMP004001-EMP004080: should have 1 row each (new insert)")
+        print(f"  8. EMP000200+: should have 1 row each (unchanged)")
 
     except Exception as e:
         print(f"\nError: {e}")
