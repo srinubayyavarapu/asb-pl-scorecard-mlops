@@ -64,6 +64,12 @@ stages:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
+          - script: databricks bundle run ml_hl_behaviour_scorecard -t stg
+            displayName: "Run ML pipeline in staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
   # ── Stage 2: Deploy to Production (on merge to release branch) ──
   - stage: ProdBundleCD
     displayName: "Deploy to Production"
@@ -100,6 +106,12 @@ stages:
 
                 - script: databricks bundle deploy -t prod
                   displayName: "Deploy bundle to prod"
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: databricks bundle run ml_hl_behaviour_scorecard -t prod
+                  displayName: "Run ML pipeline in prod"
                   env:
                     DATABRICKS_HOST: $(DATABRICKS_HOST)
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
