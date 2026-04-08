@@ -17,6 +17,20 @@
 
 # COMMAND ----------
 
+# Fallback: if %run fails (e.g., DAB file deployment), load config loader via exec
+try:
+    load_model_config
+except NameError:
+    import os
+    _nb_dir = os.path.dirname(dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get())
+    _loader_path = f"/Workspace{_nb_dir}/00_ml_config_loader"
+    try:
+        exec(open(f"{_loader_path}.py").read())
+    except FileNotFoundError:
+        raise ImportError("Cannot load 00_ml_config_loader via %run or exec. Ensure it is deployed alongside the notebooks.")
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F
 from pyspark.sql import Window
 from datetime import datetime
