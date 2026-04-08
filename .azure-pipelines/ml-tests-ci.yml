@@ -1,0 +1,117 @@
+# ============================================================
+# ML Scorecard Framework - Tests CI Pipeline
+# ============================================================
+# Runs unit tests and integration tests on PRs.
+#
+# Unit tests: run on Azure Pipelines agent (no Databricks needed)
+# Integration tests: validate + deploy + run on Databricks
+#
+# Auth: Currently using PAT token (DATABRICKS_HOST + DATABRICKS_TOKEN)
+# For production Azure Databricks, switch to Service Principal:
+#   ARM_TENANT_ID, ARM_CLIENT_ID, ARM_CLIENT_SECRET
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - configs/ml/**
+      - notebooks/ml/**
+      - resources/ml_scorecard_job.yml
+
+variables:
+  - group: asb-ml-variables
+  - name: workingDirectory
+    value: $(Build.SourcesDirectory)
+
+jobs:
+
+  # ── Job 1: Unit Tests (runs on agent, no Databricks) ──
+  - job: UnitTests
+    displayName: "Unit Tests"
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    pool:
+      vmImage: "ubuntu-latest"
+
+    steps:
+      - checkout: self
+        persistCredentials: true
+        clean: true
+
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: "3.11"
+
+      - script: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest
+        displayName: "Install dependencies"
+
+      - script: |
+          pytest tests/ --junitxml=test-unit.xml -v
+        displayName: "Run unit tests with pytest"
+        workingDirectory: $(workingDirectory)
+
+      - task: PublishTestResults@2
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFiles: "**/test-unit.xml"
+          testRunTitle: "ML Framework Unit Tests"
+
+  # ── Job 2: Integration Tests (deploys + runs on Databricks) ──
+  - job: IntegrationTests
+    displayName: "Integration Tests"
+    dependsOn: UnitTests
+    condition: succeeded()
+    pool:
+      vmImage: "ubuntu-latest"
+
+    steps:
+      - checkout: self
+        persistCredentials: true
+        clean: true
+
+      - script: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+        displayName: "Install Databricks CLI"
+
+      - script: databricks version
+        displayName: "Verify CLI installation"
+
+      # Validate bundle for staging
+      - script: databricks bundle validate -t stg
+        workingDirectory: $(workingDirectory)
+        displayName: "Validate bundle for staging"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+          # For Azure SP auth, replace above with:
+          # ARM_TENANT_ID: $(STAGING_AZURE_SP_TENANT_ID)
+          # ARM_CLIENT_ID: $(STAGING_AZURE_SP_APPLICATION_ID)
+          # ARM_CLIENT_SECRET: $(STAGING_AZURE_SP_CLIENT_SECRET)
+
+      # Validate bundle for prod (catch config errors early)
+      - script: databricks bundle validate -t prod
+        workingDirectory: $(workingDirectory)
+        displayName: "Validate bundle for prod"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+      # Deploy to staging
+      - script: databricks bundle deploy -t stg
+        workingDirectory: $(workingDirectory)
+        displayName: "Deploy bundle to staging"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+      # Run ML pipeline in staging (integration test)
+      - script: databricks bundle run ml_hl_behaviour_scorecard -t stg
+        workingDirectory: $(workingDirectory)
+        displayName: "Run ML pipeline in staging (integration test)"
+        env:
+          DATABRICKS_HOST: $(DATABRICKS_HOST)
+          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)

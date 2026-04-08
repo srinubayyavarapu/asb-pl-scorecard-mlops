@@ -1,0 +1,30 @@
+# ============================================================
+# Model Monitoring Config - Home Loan Behaviour Scorecard
+# ============================================================
+
+# Metrics to track over time
+metrics:
+  - "gini"
+  - "ks"
+  - "auc"
+  - "psi"
+
+# Drift thresholds
+drift_thresholds:
+  psi:
+    warning: 0.10
+    critical: 0.25
+  gini_drop:
+    warning: 0.05
+    critical: 0.10
+  ks_drop:
+    warning: 0.05
+    critical: 0.10
+
+# Monitoring output
+monitoring_table: "${catalog}.retail_ml.hl_monitoring_log"
+baseline_table: "${catalog}.retail_ml.hl_monitoring_baseline"
+
+# Alerting
+alert_on_warning: false
+alert_on_critical: true

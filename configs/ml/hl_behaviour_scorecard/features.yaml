@@ -1,0 +1,84 @@
+# ============================================================
+# Feature Engineering Config - Home Loan Behaviour Scorecard
+# ============================================================
+
+# IV thresholds for feature selection
+iv_thresholds:
+  exclude_below: 0.02      # Unpredictive - drop
+  weak_below: 0.10         # Weak - include only if domain-justified
+  suspicious_above: 0.50   # Investigate for data leakage
+
+# Feature definitions
+features:
+  - name: "credit_score"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "descending"   # higher score = lower risk
+
+  - name: "lvr"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "ascending"    # higher LVR = higher risk
+
+  - name: "annual_income"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "descending"
+
+  - name: "loan_amount"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "ascending"
+
+  - name: "interest_rate"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "ascending"
+
+  - name: "months_on_book"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "descending"
+
+  - name: "property_value"
+    type: "continuous"
+    banding_method: "auto"
+    monotonicity: "descending"
+
+  - name: "employment_type"
+    type: "categorical"
+    banding_method: "manual"
+    manual_bands:
+      - band: 1
+        values: ["SALARY"]
+      - band: 2
+        values: ["SELF_EMPLOYED", "CONTRACT"]
+      - band: 3
+        values: ["RETIRED", "OTHER"]
+
+  - name: "property_type"
+    type: "categorical"
+    banding_method: "manual"
+    manual_bands:
+      - band: 1
+        values: ["RESIDENTIAL"]
+      - band: 2
+        values: ["INVESTMENT"]
+      - band: 3
+        values: ["COMMERCIAL", "RURAL"]
+
+  - name: "region"
+    type: "categorical"
+    banding_method: "auto"
+    monotonicity: null            # no monotonicity for categorical
+
+# Auto-banding parameters
+auto_banding:
+  max_bins: 10
+  min_bin_size: 0.05             # minimum 5% of population per bin
+  min_bad_count: 20              # minimum bad observations per bin
+
+# Output tables
+banding_table: "${catalog}.retail_gold.hl_banding_lookup"
+woe_iv_table: "${catalog}.retail_gold.hl_woe_iv"
+feature_store_table: "${catalog}.retail_ml.hl_feature_store"

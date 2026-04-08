@@ -1,0 +1,74 @@
+# ASB Bank SAS-to-Databricks Migration Framework
+# Databricks Asset Bundles Configuration
+
+bundle:
+  name: asb-sas-to-dbx-migration
+
+variables:
+  environment:
+    description: "Deployment environment (dev, stg, prod)"
+    default: dev
+  catalog:
+    description: "Unity Catalog name"
+    default: asb_dev
+  bronze_schema:
+    description: "Bronze layer schema"
+    default: retail_bronze
+  silver_schema:
+    description: "Silver layer schema"
+    default: retail_silver
+  gold_schema:
+    description: "Gold layer schema"
+    default: retail_gold
+  ml_schema:
+    description: "ML assets schema (models, features, experiments)"
+    default: retail_ml
+  snowflake_connection:
+    description: "Snowflake connection name in Unity Catalog"
+    default: asb_snowflake_connection
+  warehouse_id:
+    description: "SQL Warehouse ID for federation queries"
+    default: ""
+
+# Include resource definitions from separate files
+include:
+  - resources/*.yml
+
+# ──────────────────────────────────────────────
+# Targets (Environments)
+# ──────────────────────────────────────────────
+
+targets:
+  # ── DEV ──
+  dev:
+    default: true
+    mode: development
+    variables:
+      environment: dev
+      catalog: asb_dev
+    workspace:
+      host: https://dbc-1121950f-87d6.cloud.databricks.com
+
+  # ── STAGING (mimicked on same workspace with naming convention) ──
+  stg:
+    variables:
+      environment: stg
+      catalog: asb_dev          # Same workspace - use asb_dev catalog
+      bronze_schema: retail_bronze_stg
+      silver_schema: retail_silver_stg
+      gold_schema: retail_gold_stg
+      ml_schema: retail_ml_stg
+    workspace:
+      host: https://dbc-1121950f-87d6.cloud.databricks.com
+
+  # ── PRODUCTION (mimicked on same workspace with naming convention) ──
+  prod:
+    variables:
+      environment: prod
+      catalog: asb_dev          # Same workspace - use asb_dev catalog
+      bronze_schema: retail_bronze_prod
+      silver_schema: retail_silver_prod
+      gold_schema: retail_gold_prod
+      ml_schema: retail_ml_prod
+    workspace:
+      host: https://dbc-1121950f-87d6.cloud.databricks.com

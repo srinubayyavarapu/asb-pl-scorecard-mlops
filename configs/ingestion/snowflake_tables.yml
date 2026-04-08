@@ -1,0 +1,189 @@
+# ============================================================
+# Snowflake Tables Inventory
+# ============================================================
+# Lists all tables to ingest from Snowflake into Delta Lake.
+# ingestion_mode:
+#   - "jdbc"        → Full copy into Delta Bronze (default)
+#   - "federation"  → Query in place via Lakehouse Federation (no data movement)
+#
+# To onboard a new table: add an entry below and re-run the ETL pipeline.
+# ============================================================
+
+# ── Snowflake Connection ──
+connection:
+  # Federation: Unity Catalog foreign catalog name
+  federation_catalog: "snowflake_asb"
+
+  # JDBC: Connection details (secrets stored in Key Vault / Databricks Secrets)
+  jdbc:
+    host_secret: "snowflake-host"
+    user_secret: "snowflake-user"
+    password_secret: "snowflake-password"
+    database: "ASB_ANALYTICS"
+    warehouse: "COMPUTE_WH"
+    role: "DATA_READER"
+    secret_scope: "asb-secrets"
+
+# ── Tables ──
+tables:
+  # ──────────────────────────────────────────
+  # Scorecard / PD Datasets (ML Primary)
+  # ──────────────────────────────────────────
+  - name: "HLACCTBASE_FINAL"
+    source_schema: "CREDIT_RISK"
+    description: "Home loan account base - primary scorecard dataset"
+    size_gb: 212
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "hlacctbase_final"
+
+  - name: "CC_Scorecard_withP1"
+    source_schema: "CREDIT_RISK"
+    description: "Credit card scorecard with P1 data"
+    size_gb: 163
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_scorecard_withp1"
+
+  - name: "CC_DATAFRAME"
+    source_schema: "CREDIT_RISK"
+    description: "Credit card data frame for modelling"
+    size_gb: 121
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_dataframe"
+
+  - name: "CC_facilitySnapshot_temp2"
+    source_schema: "CREDIT_RISK"
+    description: "Credit card facility snapshot"
+    size_gb: 96
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_facilitysnapshot_temp2"
+
+  - name: "PL_Scorecard_withP1"
+    source_schema: "CREDIT_RISK"
+    description: "Personal loans scorecard with P1"
+    size_gb: 14
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "pl_scorecard_withp1"
+
+  - name: "PL_DATAFRAME"
+    source_schema: "CREDIT_RISK"
+    description: "Personal loans data frame"
+    size_gb: 7
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "pl_dataframe"
+
+  - name: "CC_Scorecard_Model"
+    source_schema: "CREDIT_RISK"
+    description: "Credit card model parameters"
+    size_gb: 0.000128
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_scorecard_model"
+
+  - name: "PL_Scorecard_Model"
+    source_schema: "CREDIT_RISK"
+    description: "Personal loans model parameters"
+    size_gb: 0.000128
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "pl_scorecard_model"
+
+  # ──────────────────────────────────────────
+  # Default / Delinquency Datasets
+  # ──────────────────────────────────────────
+  - name: "ADD_DEFAULT_FLAG_202408"
+    source_schema: "CREDIT_RISK"
+    description: "Default flags as of Aug 2024"
+    size_gb: 3
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "add_default_flag_202408"
+
+  - name: "ALL_DEFAULT_BASELEVEL_202408"
+    source_schema: "CREDIT_RISK"
+    description: "All default base level data as of Aug 2024"
+    size_gb: 2
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "all_default_baselevel_202408"
+
+  # ──────────────────────────────────────────
+  # GDW Extract Datasets (Model Training Data)
+  # ──────────────────────────────────────────
+  - name: "CC_ACCTNUMKEY_199607_202408"
+    source_schema: "GDW"
+    description: "Credit card account number keys"
+    size_gb: 18
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_acctnumkey_199607_202408"
+
+  - name: "CC_GDWEXTRACT_199607_202408"
+    source_schema: "GDW"
+    description: "Credit card GDW extract"
+    size_gb: 21
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "cc_gdwextract_199607_202408"
+
+  - name: "HL_BASELEVEL_199607_202408"
+    source_schema: "GDW"
+    description: "Home loan base level data"
+    size_gb: 7
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "hl_baselevel_199607_202408"
+
+  - name: "HL_GDWEXTRACT_199607_202408"
+    source_schema: "GDW"
+    description: "Home loan GDW extract"
+    size_gb: 24
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "hl_gdwextract_199607_202408"
+
+  - name: "HL_PPTY_RES_TYPE_199607_202408"
+    source_schema: "GDW"
+    description: "Home loan property/residence type"
+    size_gb: 14
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "hl_ppty_res_type_199607_202408"
+
+  - name: "OD_GDWEXTRACT_201201_202408"
+    source_schema: "GDW"
+    description: "Overdraft GDW extract"
+    size_gb: 6
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "od_gdwextract_201201_202408"
+
+  - name: "SME_GDWEXTRACT_201201_202408"
+    source_schema: "GDW"
+    description: "SME GDW extract"
+    size_gb: 3
+    ingestion_mode: "jdbc"
+    incremental: false
+    partition_by: []
+    bronze_table: "sme_gdwextract_201201_202408"

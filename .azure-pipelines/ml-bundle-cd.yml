@@ -1,0 +1,105 @@
+# ============================================================
+# ML Scorecard Framework - Bundle CD Pipeline
+# ============================================================
+# Deploys ML bundle resources to staging and production.
+#
+# - Merge to main -> deploy to staging
+# - Merge to release -> deploy to production (manual approval)
+#
+# Auth: Currently using PAT token (DATABRICKS_HOST + DATABRICKS_TOKEN)
+# For production Azure Databricks, switch to Service Principal:
+#   ARM_TENANT_ID, ARM_CLIENT_ID, ARM_CLIENT_SECRET
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - release
+  paths:
+    include:
+      - configs/ml/**
+      - notebooks/ml/**
+      - resources/ml_scorecard_job.yml
+      - databricks.yml
+
+variables:
+  - group: asb-ml-variables
+
+stages:
+
+  # ── Stage 1: Deploy to Staging (on merge to main) ──
+  - stage: StagingBundleCD
+    displayName: "Deploy to Staging"
+    condition: |
+      and(
+        eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+        not(eq(variables['Build.Reason'], 'PullRequest'))
+      )
+
+    jobs:
+      - job: DeployStaging
+        displayName: "Bundle deploy - Staging"
+        pool:
+          vmImage: "ubuntu-latest"
+
+        steps:
+          - checkout: self
+            persistCredentials: true
+            clean: true
+
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: "Install Databricks CLI"
+
+          - script: databricks bundle validate -t stg
+            displayName: "Validate bundle for staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: databricks bundle deploy -t stg
+            displayName: "Deploy bundle to staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+  # ── Stage 2: Deploy to Production (on merge to release branch) ──
+  - stage: ProdBundleCD
+    displayName: "Deploy to Production"
+    condition: |
+      and(
+        eq(variables['Build.SourceBranch'], 'refs/heads/release'),
+        not(eq(variables['Build.Reason'], 'PullRequest'))
+      )
+
+    jobs:
+      - deployment: DeployProd
+        displayName: "Bundle deploy - Production"
+        environment: "production"
+        pool:
+          vmImage: "ubuntu-latest"
+
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  persistCredentials: true
+                  clean: true
+
+                - script: |
+                    curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                  displayName: "Install Databricks CLI"
+
+                - script: databricks bundle validate -t prod
+                  displayName: "Validate bundle for prod"
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: databricks bundle deploy -t prod
+                  displayName: "Deploy bundle to prod"
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)

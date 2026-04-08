@@ -1,0 +1,93 @@
+# ============================================================
+# ETL Ingestion Jobs: Snowflake → Bronze → Silver
+# ============================================================
+# Each table gets its own dedicated job with a two-task chain:
+#   Task 1: 01_ingest_snowflake (Snowflake → Bronze)
+#   Task 2: 02_bronze_to_silver (Bronze → Silver with SCD2)
+#
+# This allows independent monitoring, scheduling, and reruns
+# per table without affecting other ingestions.
+#
+# Usage:
+#   databricks bundle run etl_hlacctbase_final --target dev
+#   databricks bundle run etl_hlacctbase_final_incr --target dev
+# ============================================================
+
+resources:
+  jobs:
+
+    # ── HLACCTBASE_FINAL (Historical - Full Load) ──
+    etl_hlacctbase_final:
+      name: "asb-etl-hlacctbase-final-${var.environment}"
+      description: "Home loan account base - historical full load (212 GB)"
+      tags:
+        source_table: "HLACCTBASE_FINAL"
+        load_type: "historical"
+        domain: "credit_risk"
+
+      parameters:
+        - name: table_name
+          default: "HLACCTBASE_FINAL"
+        - name: force_full_load
+          default: "N"
+
+      tasks:
+        - task_key: ingest_to_bronze
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "{{job.parameters.table_name}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: default
+
+        - task_key: bronze_to_silver
+          depends_on:
+            - task_key: ingest_to_bronze
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              table_name: "{{job.parameters.table_name}}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+
+    # ── HLACCTBASE_FINAL_INCR (Incremental - SCD Type 2) ──
+    etl_hlacctbase_final_incr:
+      name: "asb-etl-hlacctbase-final-incr-${var.environment}"
+      description: "Home loan account base - incremental SCD2 load"
+      tags:
+        source_table: "HLACCTBASE_FINAL"
+        load_type: "incremental"
+        domain: "credit_risk"
+
+      parameters:
+        - name: table_name
+          default: "HLACCTBASE_FINAL"
+        - name: force_full_load
+          default: "N"
+
+      tasks:
+        - task_key: ingest_to_bronze
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "{{job.parameters.table_name}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: default
+
+        - task_key: bronze_to_silver
+          depends_on:
+            - task_key: ingest_to_bronze
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              table_name: "{{job.parameters.table_name}}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"

@@ -1,0 +1,37 @@
+# ============================================================
+# ML Model Registry - Master Configuration
+# ============================================================
+# This is the ML equivalent of master_table_inventory.csv.
+# Each entry defines a scorecard model and points to its
+# phase-specific config files.
+#
+# Usage: notebooks read this file, look up the model_name
+# parameter, and load the relevant phase configs.
+# ============================================================
+
+models:
+
+  hl_behaviour_scorecard:
+    description: "Home Loan Customer Behaviour Scorecard - PD estimation"
+    product: "home_loan"
+    use_case: "credit_risk_pd"
+    target_variable: "default_flag"
+    primary_key: "account_key"
+    champion_algorithm: "logistic_regression"
+    challenger_algorithms:
+      - "random_forest"
+      - "neural_network"
+    config_dir: "configs/ml/hl_behaviour_scorecard"
+    is_active: true
+
+  # -- Future models (add as new waves come in) --
+  # cc_behaviour_scorecard:
+  #   description: "Credit Card Customer Behaviour Scorecard"
+  #   product: "credit_card"
+  #   use_case: "credit_risk_pd"
+  #   target_variable: "default_flag"
+  #   primary_key: "account_key"
+  #   champion_algorithm: "logistic_regression"
+  #   challenger_algorithms: ["random_forest"]
+  #   config_dir: "configs/ml/cc_behaviour_scorecard"
+  #   is_active: false

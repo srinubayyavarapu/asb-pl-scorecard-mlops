@@ -1,0 +1,56 @@
+# ============================================================
+# Data Preparation Config - Home Loan Behaviour Scorecard
+# ============================================================
+
+# Source tables (Silver layer - output of ETL pipeline)
+# For testing: using sample data table. For production: uncomment the full table list below.
+source_tables:
+  base: "${catalog}.retail_silver.hl_sample_data"
+  # gdw_extract: "${catalog}.retail_silver.hl_gdwextract_199607_202408"
+  # default_flags: "${catalog}.retail_silver.add_default_flag_202408"
+  # base_level: "${catalog}.retail_silver.hl_baselevel_199607_202408"
+  # property: "${catalog}.retail_silver.hl_ppty_res_type_199607_202408"
+
+# Join specification (executed in order)
+# For testing: no joins needed (single source table has all columns)
+# For production: uncomment the joins below
+joins: []
+  # - left: "base"
+  #   right: "gdw_extract"
+  #   on: "account_key"
+  #   how: "left"
+  # - left: "_result"
+  #   right: "default_flags"
+  #   on: "account_key"
+  #   how: "inner"
+  # - left: "_result"
+  #   right: "base_level"
+  #   on: "account_key"
+  #   how: "left"
+  # - left: "_result"
+  #   right: "property"
+  #   on: "account_key"
+  #   how: "left"
+
+# Good/Bad definition (roll rate based)
+good_bad_definition:
+  target_column: "default_flag"
+  bad_condition: "default_flag = 1"
+  performance_window_months: 6
+  observation_window:
+    start: "2021-01-01"
+    end: "2024-06-30"
+  exclusions:
+    - "account_status = 'CLOSED'"
+    - "months_on_book < 6"
+
+# Sampling
+sampling:
+  dev_ratio: 0.70
+  holdout_ratio: 0.30
+  oot_start_date: "2023-07-01"
+  stratify_by: "default_flag"
+  random_seed: 42
+
+# Output
+output_table: "${catalog}.retail_gold.hl_scorecard_dev_data"
