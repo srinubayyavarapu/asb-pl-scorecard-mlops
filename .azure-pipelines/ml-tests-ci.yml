@@ -1,14 +1,15 @@
 # ============================================================
-# ML Scorecard Framework - Tests CI Pipeline
+# ML Scorecard Framework - CI Pipeline
 # ============================================================
-# Runs unit tests and integration tests on PRs.
+# Triggered: automatically when code is merged to main branch
 #
-# Unit tests: run on Azure Pipelines agent (no Databricks needed)
-# Integration tests: validate + deploy + run on Databricks
-#
-# Auth: Currently using PAT token (DATABRICKS_HOST + DATABRICKS_TOKEN)
-# For production Azure Databricks, switch to Service Principal:
-#   ARM_TENANT_ID, ARM_CLIENT_ID, ARM_CLIENT_SECRET
+# Flow:
+#   1. Push to Feature -> auto PR to main (via branch policy)
+#   2. Reviewer merges PR to main
+#   3. This CI pipeline triggers:
+#      - Stage 1: Unit Tests (on agent)
+#      - Stage 2: Integration Tests (deploy + run on staging)
+#   4. CI passes -> auto-creates PR from main to release
 # ============================================================
 
 trigger:
@@ -20,98 +21,141 @@ trigger:
       - configs/ml/**
       - notebooks/ml/**
       - resources/ml_scorecard_job.yml
+      - databricks.yml
+      - tests/**
+
+pr: none
 
 variables:
   - group: asb-ml-variables
   - name: workingDirectory
     value: $(Build.SourcesDirectory)
 
-jobs:
+stages:
 
-  # ── Job 1: Unit Tests (runs on agent, no Databricks) ──
-  - job: UnitTests
-    displayName: "Unit Tests"
-    condition: eq(variables['Build.Reason'], 'PullRequest')
-    pool:
-      vmImage: "ubuntu-latest"
+  # ── Stage 1: Unit Tests + Integration Tests ──
+  - stage: CI
+    displayName: "CI - Test & Validate"
 
-    steps:
-      - checkout: self
-        persistCredentials: true
-        clean: true
+    jobs:
+      # ── Job 1: Unit Tests ──
+      - job: UnitTests
+        displayName: "Unit Tests"
+        pool:
+          vmImage: "ubuntu-latest"
 
-      - task: UsePythonVersion@0
-        inputs:
-          versionSpec: "3.11"
+        steps:
+          - checkout: self
+            persistCredentials: true
+            clean: true
 
-      - script: |
-          python -m pip install --upgrade pip
-          pip install pyyaml pytest
-        displayName: "Install dependencies"
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
 
-      - script: |
-          pytest tests/ --junitxml=test-unit.xml -v
-        displayName: "Run unit tests with pytest"
-        workingDirectory: $(workingDirectory)
+          - script: |
+              python -m pip install --upgrade pip
+              pip install pyyaml pytest
+            displayName: "Install dependencies"
 
-      - task: PublishTestResults@2
-        condition: succeededOrFailed()
-        inputs:
-          testResultsFiles: "**/test-unit.xml"
-          testRunTitle: "ML Framework Unit Tests"
+          - script: |
+              pytest tests/ --junitxml=test-unit.xml -v
+            displayName: "Run unit tests with pytest"
+            workingDirectory: $(workingDirectory)
 
-  # ── Job 2: Integration Tests (deploys + runs on Databricks) ──
-  - job: IntegrationTests
-    displayName: "Integration Tests"
-    dependsOn: UnitTests
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFiles: "**/test-unit.xml"
+              testRunTitle: "ML Framework Unit Tests"
+
+      # ── Job 2: Integration Tests ──
+      - job: IntegrationTests
+        displayName: "Integration Tests"
+        dependsOn: UnitTests
+        condition: succeeded()
+        pool:
+          vmImage: "ubuntu-latest"
+
+        steps:
+          - checkout: self
+            persistCredentials: true
+            clean: true
+
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: "Install Databricks CLI"
+
+          - script: databricks version
+            displayName: "Verify CLI installation"
+
+          - script: databricks bundle validate -t stg
+            workingDirectory: $(workingDirectory)
+            displayName: "Validate bundle for staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: databricks bundle validate -t prod
+            workingDirectory: $(workingDirectory)
+            displayName: "Validate bundle for prod"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: databricks bundle deploy -t stg
+            workingDirectory: $(workingDirectory)
+            displayName: "Deploy bundle to staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: databricks bundle run ml_hl_behaviour_scorecard -t stg
+            workingDirectory: $(workingDirectory)
+            displayName: "Run ML pipeline in staging"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+  # ── Stage 2: Auto-create PR from main to release ──
+  - stage: CreateReleasePR
+    displayName: "Create Release PR"
+    dependsOn: CI
     condition: succeeded()
-    pool:
-      vmImage: "ubuntu-latest"
 
-    steps:
-      - checkout: self
-        persistCredentials: true
-        clean: true
+    jobs:
+      - job: CreatePR
+        displayName: "Auto-create PR: main -> release"
+        pool:
+          vmImage: "ubuntu-latest"
 
-      - script: |
-          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-        displayName: "Install Databricks CLI"
+        steps:
+          - checkout: self
+            persistCredentials: true
+            clean: true
 
-      - script: databricks version
-        displayName: "Verify CLI installation"
+          - script: |
+              PR_RESPONSE=$(curl -s -X POST \
+                -H "Content-Type: application/json" \
+                -u ":$(System.AccessToken)" \
+                "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/git/repositories/$(Build.Repository.Name)/pullrequests?api-version=7.0" \
+                -d '{
+                  "sourceRefName": "refs/heads/main",
+                  "targetRefName": "refs/heads/release",
+                  "title": "Release: Deploy to Production (CI passed - Build $(Build.BuildNumber))",
+                  "description": "Auto-created by CI pipeline after successful staging validation.\n\nBuild: $(Build.BuildNumber)\nCommit: $(Build.SourceVersion)\n\nCI Results:\n- Unit Tests: Passed\n- Integration Tests: Passed (staging deployment validated)"
+                }')
 
-      # Validate bundle for staging
-      - script: databricks bundle validate -t stg
-        workingDirectory: $(workingDirectory)
-        displayName: "Validate bundle for staging"
-        env:
-          DATABRICKS_HOST: $(DATABRICKS_HOST)
-          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
-          # For Azure SP auth, replace above with:
-          # ARM_TENANT_ID: $(STAGING_AZURE_SP_TENANT_ID)
-          # ARM_CLIENT_ID: $(STAGING_AZURE_SP_APPLICATION_ID)
-          # ARM_CLIENT_SECRET: $(STAGING_AZURE_SP_CLIENT_SECRET)
+              echo "$PR_RESPONSE"
 
-      # Validate bundle for prod (catch config errors early)
-      - script: databricks bundle validate -t prod
-        workingDirectory: $(workingDirectory)
-        displayName: "Validate bundle for prod"
-        env:
-          DATABRICKS_HOST: $(DATABRICKS_HOST)
-          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+              PR_ID=$(echo "$PR_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pullRequestId','FAILED'))" 2>/dev/null)
 
-      # Deploy to staging
-      - script: databricks bundle deploy -t stg
-        workingDirectory: $(workingDirectory)
-        displayName: "Deploy bundle to staging"
-        env:
-          DATABRICKS_HOST: $(DATABRICKS_HOST)
-          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
-
-      # Run ML pipeline in staging (integration test)
-      - script: databricks bundle run ml_hl_behaviour_scorecard -t stg
-        workingDirectory: $(workingDirectory)
-        displayName: "Run ML pipeline in staging (integration test)"
-        env:
-          DATABRICKS_HOST: $(DATABRICKS_HOST)
-          DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+              if [ "$PR_ID" != "FAILED" ] && [ -n "$PR_ID" ]; then
+                echo "PR created successfully: #$PR_ID"
+                echo "Waiting for reviewer approval to deploy to production."
+              else
+                echo "PR creation skipped (may already exist or branch not found)"
+              fi
+            displayName: "Create PR: main -> release"
+            env:
+              System.AccessToken: $(System.AccessToken)
