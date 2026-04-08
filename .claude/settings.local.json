@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(databricks bundle deploy:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "databricks"
+  ]
+}
