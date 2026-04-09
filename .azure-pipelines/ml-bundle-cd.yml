@@ -67,8 +67,23 @@ stages:
                     DATABRICKS_HOST: $(DATABRICKS_HOST)
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
-                - script: databricks bundle run ml_hl_behaviour_scorecard -t prod
-                  displayName: "Run ML pipeline in prod"
+                - script: |
+                    pip install pyyaml -q
+                    python -c "
+                    import yaml, subprocess, sys
+                    with open('configs/ml/model_registry.yaml') as f:
+                        models = yaml.safe_load(f)['models']
+                    for name, cfg in models.items():
+                        if cfg.get('is_active'):
+                            job_name = f'ml_{name}'
+                            print(f'Running: {job_name}')
+                            result = subprocess.run(['databricks', 'bundle', 'run', job_name, '-t', 'prod'], capture_output=False)
+                            if result.returncode != 0:
+                                print(f'FAILED: {job_name}')
+                                sys.exit(1)
+                    print('All active models passed')
+                    "
+                  displayName: "Run active ML pipelines in prod"
                   env:
                     DATABRICKS_HOST: $(DATABRICKS_HOST)
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
