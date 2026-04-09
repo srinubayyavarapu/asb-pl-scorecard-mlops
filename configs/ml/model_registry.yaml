@@ -22,7 +22,7 @@ models:
       - "random_forest"
       - "neural_network"
     config_dir: "configs/ml/hl_behaviour_scorecard"
-    is_active: true
+    is_active: false  # disabled - testing CC scorecard
 
   cc_behaviour_scorecard:
     description: "Credit Card Customer Behaviour Scorecard - PD estimation"
