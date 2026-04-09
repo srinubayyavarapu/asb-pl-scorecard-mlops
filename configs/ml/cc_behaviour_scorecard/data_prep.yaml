@@ -1,0 +1,24 @@
+# Data Preparation Config - Credit Card Behaviour Scorecard
+
+source_tables:
+  base: "${catalog}.retail_silver.cc_customer_data"
+
+joins: []
+
+good_bad_definition:
+  target_column: "defaulted"
+  bad_condition: "defaulted = 1"
+  performance_window_months: 12
+  observation_window:
+    start: "2020-01-01"
+    end: "2026-12-31"
+  exclusions: []
+
+sampling:
+  dev_ratio: 0.70
+  holdout_ratio: 0.30
+  oot_start_date: null
+  stratify_by: "defaulted"
+  random_seed: 42
+
+output_table: "${catalog}.retail_gold.cc_scorecard_dev_data"

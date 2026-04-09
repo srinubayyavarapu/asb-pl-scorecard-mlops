@@ -131,7 +131,117 @@ EMBEDDED_CONFIGS = {
             "alert_on_warning": False,
             "alert_on_critical": True,
         },
-    }
+    },
+
+    "cc_behaviour_scorecard": {
+        "model": {
+            "description": "Credit Card Customer Behaviour Scorecard - PD estimation",
+            "product": "credit_card",
+            "use_case": "credit_risk_pd",
+            "target_variable": "defaulted",
+            "primary_key": "customer_id",
+            "champion_algorithm": "logistic_regression",
+            "challenger_algorithms": ["random_forest", "neural_network"],
+            "config_dir": "configs/ml/cc_behaviour_scorecard",
+            "is_active": True,
+        },
+        "data_prep": {
+            "source_tables": {"base": "${catalog}.retail_silver.cc_customer_data"},
+            "joins": [],
+            "good_bad_definition": {
+                "target_column": "defaulted",
+                "bad_condition": "defaulted = 1",
+                "performance_window_months": 12,
+                "observation_window": {"start": "2020-01-01", "end": "2026-12-31"},
+                "exclusions": [],
+            },
+            "sampling": {"dev_ratio": 0.70, "holdout_ratio": 0.30, "oot_start_date": None, "stratify_by": "defaulted", "random_seed": 42},
+            "output_table": "${catalog}.retail_gold.cc_scorecard_dev_data",
+        },
+        "features": {
+            "iv_thresholds": {"exclude_below": 0.02, "weak_below": 0.10, "suspicious_above": 0.50},
+            "features": [
+                {"name": "credit_score", "type": "continuous", "banding_method": "auto", "monotonicity": "descending"},
+                {"name": "annual_income", "type": "continuous", "banding_method": "auto", "monotonicity": "descending"},
+                {"name": "credit_utilization_ratio", "type": "continuous", "banding_method": "auto", "monotonicity": "ascending"},
+                {"name": "debt_to_income_ratio", "type": "continuous", "banding_method": "auto", "monotonicity": "ascending"},
+                {"name": "number_of_late_payments", "type": "continuous", "banding_method": "auto", "monotonicity": "ascending"},
+                {"name": "number_of_credit_lines", "type": "continuous", "banding_method": "auto", "monotonicity": None},
+                {"name": "tenure_in_years", "type": "continuous", "banding_method": "auto", "monotonicity": "descending"},
+                {"name": "total_spend_last_year", "type": "continuous", "banding_method": "auto", "monotonicity": None},
+                {"name": "fraud_transactions", "type": "continuous", "banding_method": "auto", "monotonicity": "ascending"},
+                {"name": "age", "type": "continuous", "banding_method": "auto", "monotonicity": None},
+            ],
+            "auto_banding": {"max_bins": 10, "min_bin_size": 0.05, "min_bad_count": 20},
+            "banding_table": "${catalog}.retail_gold.cc_banding_lookup",
+            "woe_iv_table": "${catalog}.retail_gold.cc_woe_iv",
+            "feature_store_table": "${catalog}.retail_ml.cc_feature_store",
+        },
+        "training": {
+            "mlflow": {
+                "experiment_name": "/Shared/ml/cc_behaviour_scorecard_experiments",
+                "model_name": "${catalog}.retail_ml.cc_behaviour_scorecard",
+                "run_tags": {"product": "credit_card", "use_case": "credit_risk_pd", "regulatory_framework": "APRA_RBNZ"},
+            },
+            "algorithms": {
+                "logistic_regression": {
+                    "library": "sklearn", "class": "LogisticRegression", "role": "champion",
+                    "params": {"penalty": "l2", "solver": "lbfgs", "max_iter": 1000},
+                    "grid_search": {"C": [0.01, 0.1, 1.0, 10.0]},
+                    "search_method": "grid",
+                },
+                "random_forest": {
+                    "library": "sklearn", "class": "RandomForestClassifier", "role": "challenger",
+                    "params": {"random_state": 42},
+                    "grid_search": {"n_estimators": [100, 200], "max_depth": [5, 10, 15]},
+                    "search_method": "grid",
+                },
+                "neural_network": {
+                    "library": "sklearn", "class": "MLPClassifier", "role": "challenger",
+                    "params": {"activation": "relu", "max_iter": 500, "random_state": 42},
+                    "grid_search": {"hidden_layer_sizes": [(64, 32), (128, 64)]},
+                    "search_method": "grid",
+                },
+            },
+            "validation_thresholds": {
+                "gini": {"min": 0.40, "populations": ["dev", "holdout"]},
+                "ks": {"min": 0.25, "populations": ["dev", "holdout"]},
+                "auc": {"min": 0.70, "populations": ["dev", "holdout"]},
+                "psi": {"green": 0.10, "amber": 0.25, "populations": ["holdout"]},
+            },
+            "sas_equivalence": {
+                "coefficient_tolerance": 0.01, "gini_tolerance": 0.02,
+                "score_psi_tolerance": 0.10, "pd_tolerance": 0.001, "risk_band_tolerance": 0.01,
+            },
+        },
+        "scoring": {
+            "scorecard_scaling": {"target_score": 600, "target_odds": 50, "pdo": 20},
+            "risk_grades": [
+                {"grade": "A1", "score_min": 750, "score_max": 999, "pd_min": 0.0, "pd_max": 0.005},
+                {"grade": "A2", "score_min": 700, "score_max": 749, "pd_min": 0.005, "pd_max": 0.01},
+                {"grade": "B1", "score_min": 650, "score_max": 699, "pd_min": 0.01, "pd_max": 0.025},
+                {"grade": "B2", "score_min": 600, "score_max": 649, "pd_min": 0.025, "pd_max": 0.05},
+                {"grade": "C1", "score_min": 550, "score_max": 599, "pd_min": 0.05, "pd_max": 0.1},
+                {"grade": "C2", "score_min": 500, "score_max": 549, "pd_min": 0.1, "pd_max": 0.2},
+                {"grade": "D", "score_min": 0, "score_max": 499, "pd_min": 0.2, "pd_max": 1.0},
+            ],
+            "input_table": "${catalog}.retail_gold.cc_scorecard_dev_data",
+            "output_table": "${catalog}.retail_gold.cc_scored_output",
+            "schedule": "monthly",
+        },
+        "monitoring": {
+            "metrics": ["gini", "ks", "auc", "psi"],
+            "drift_thresholds": {
+                "psi": {"warning": 0.10, "critical": 0.25},
+                "gini_drop": {"warning": 0.05, "critical": 0.10},
+                "ks_drop": {"warning": 0.05, "critical": 0.10},
+            },
+            "monitoring_table": "${catalog}.retail_ml.cc_monitoring_log",
+            "baseline_table": "${catalog}.retail_ml.cc_monitoring_baseline",
+            "alert_on_warning": False,
+            "alert_on_critical": True,
+        },
+    },
 }
 
 # COMMAND ----------

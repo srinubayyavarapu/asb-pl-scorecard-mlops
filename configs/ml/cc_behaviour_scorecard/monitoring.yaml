@@ -1,0 +1,24 @@
+# Model Monitoring Config - Credit Card Behaviour Scorecard
+
+metrics:
+  - "gini"
+  - "ks"
+  - "auc"
+  - "psi"
+
+drift_thresholds:
+  psi:
+    warning: 0.10
+    critical: 0.25
+  gini_drop:
+    warning: 0.05
+    critical: 0.10
+  ks_drop:
+    warning: 0.05
+    critical: 0.10
+
+monitoring_table: "${catalog}.retail_ml.cc_monitoring_log"
+baseline_table: "${catalog}.retail_ml.cc_monitoring_baseline"
+
+alert_on_warning: false
+alert_on_critical: true
