@@ -1,0 +1,67 @@
+# Model Training Config - Credit Card Behaviour Scorecard
+
+mlflow:
+  experiment_name: "/Shared/ml/cc_behaviour_scorecard_experiments"
+  model_name: "${catalog}.retail_ml.cc_behaviour_scorecard"
+  run_tags:
+    product: "credit_card"
+    use_case: "credit_risk_pd"
+    regulatory_framework: "APRA_RBNZ"
+
+algorithms:
+  logistic_regression:
+    library: "sklearn"
+    class: "LogisticRegression"
+    role: "champion"
+    params:
+      penalty: "l2"
+      solver: "lbfgs"
+      max_iter: 1000
+    grid_search:
+      C: [0.01, 0.1, 1.0, 10.0]
+    search_method: "grid"
+
+  random_forest:
+    library: "sklearn"
+    class: "RandomForestClassifier"
+    role: "challenger"
+    params:
+      random_state: 42
+    grid_search:
+      n_estimators: [100, 200]
+      max_depth: [5, 10, 15]
+    search_method: "grid"
+
+  neural_network:
+    library: "sklearn"
+    class: "MLPClassifier"
+    role: "challenger"
+    params:
+      activation: "relu"
+      max_iter: 500
+      random_state: 42
+    grid_search:
+      hidden_layer_sizes: [[64, 32], [128, 64]]
+    search_method: "grid"
+
+validation_thresholds:
+  gini:
+    min: 0.40
+    populations: ["dev", "holdout"]
+  ks:
+    min: 0.25
+    populations: ["dev", "holdout"]
+  auc:
+    min: 0.70
+    populations: ["dev", "holdout"]
+  psi:
+    green: 0.10
+    amber: 0.25
+    populations: ["holdout"]
+
+sas_equivalence:
+  coefficient_tolerance: 0.01
+  gini_tolerance: 0.02
+  score_psi_tolerance: 0.10
+  pd_tolerance: 0.001
+  risk_band_tolerance: 0.01
