@@ -158,21 +158,41 @@ except Exception:
 
 # COMMAND ----------
 
-row = {
-    "model_name": MODEL_NAME,
-    "challenger_version": int(challenger_version),
-    "champion_version": int(champion_version) if champion_version else None,
-    "evaluation_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    "challenger_auc":  challenger["auc"],
-    "challenger_gini": challenger["gini"],
-    "challenger_ks":   challenger["ks"],
-    "champion_auc":  champion["auc"]  if champion else None,
-    "champion_gini": champion["gini"] if champion else None,
-    "champion_ks":   champion["ks"]   if champion else None,
-    "comparison_result": comparison,
-}
+from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType
+from pyspark.sql import Row
 
-sdf = spark.createDataFrame(pd.DataFrame([row]))
+# Explicit schema — prevents NULL-only columns from being inferred as `void`
+# on first write (which would break future appends with real values).
+eval_schema = StructType([
+    StructField("model_name",           StringType(), False),
+    StructField("challenger_version",   LongType(),   False),
+    StructField("champion_version",     LongType(),   True),
+    StructField("evaluation_timestamp", StringType(), False),
+    StructField("challenger_auc",       DoubleType(), True),
+    StructField("challenger_gini",      DoubleType(), True),
+    StructField("challenger_ks",        DoubleType(), True),
+    StructField("champion_auc",         DoubleType(), True),
+    StructField("champion_gini",        DoubleType(), True),
+    StructField("champion_ks",          DoubleType(), True),
+    StructField("comparison_result",    StringType(), False),
+])
+
+sdf = spark.createDataFrame(
+    [Row(
+        model_name=MODEL_NAME,
+        challenger_version=int(challenger_version),
+        champion_version=int(champion_version) if champion_version else None,
+        evaluation_timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        challenger_auc=float(challenger["auc"]) if challenger["auc"] is not None else None,
+        challenger_gini=float(challenger["gini"]) if challenger["gini"] is not None else None,
+        challenger_ks=float(challenger["ks"]) if challenger["ks"] is not None else None,
+        champion_auc=float(champion["auc"]) if champion and champion["auc"] is not None else None,
+        champion_gini=float(champion["gini"]) if champion and champion["gini"] is not None else None,
+        champion_ks=float(champion["ks"]) if champion and champion["ks"] is not None else None,
+        comparison_result=comparison,
+    )],
+    schema=eval_schema,
+)
 mode = "append" if spark.catalog.tableExists(EVAL_TABLE) else "overwrite"
 sdf.write.format("delta").mode(mode).saveAsTable(EVAL_TABLE)
 print(f"\nResults written: {EVAL_TABLE}")
