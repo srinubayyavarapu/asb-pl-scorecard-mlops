@@ -1,0 +1,62 @@
+# ============================================================
+# ML Training Job — Credit Card Behaviour Scorecard
+# ============================================================
+# Data Prep → Feature Engineering → Model Training
+# Registers the best model as @Challenger in Unity Catalog.
+#
+# Usage: databricks bundle run ml_cc_training --target dev
+# ============================================================
+
+resources:
+  jobs:
+
+    ml_cc_training:
+      name: "asb-ml-cc-training-${var.environment}"
+      description: "Credit Card Scorecard — Training (@Challenger registration)"
+      tags:
+        product: "credit_card"
+        pipeline: "training"
+
+      schedule:
+        quartz_cron_expression: "0 0 3 1 * ?"
+        timezone_id: "Pacific/Auckland"
+        pause_status: PAUSED
+
+      parameters:
+        - name: catalog
+          default: "${var.catalog}"
+        - name: environment
+          default: "${var.environment}"
+
+      tasks:
+        - task_key: data_prep
+          notebook_task:
+            notebook_path: ../notebooks/ml/01_data_prep.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+        - task_key: feature_engineering
+          depends_on:
+            - task_key: data_prep
+          notebook_task:
+            notebook_path: ../notebooks/ml/02_feature_engineering.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+        - task_key: model_training
+          depends_on:
+            - task_key: feature_engineering
+          notebook_task:
+            notebook_path: ../notebooks/ml/03_model_training.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+      environments:
+        - environment_key: ml_default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-feature-engineering

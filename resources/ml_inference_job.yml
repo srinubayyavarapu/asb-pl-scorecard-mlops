@@ -1,0 +1,53 @@
+# ============================================================
+# ML Inference Job — Credit Card Behaviour Scorecard
+# ============================================================
+# Batch Scoring → Monitoring
+# Loads @Champion from UC, scores, runs drift detection.
+#
+# Usage: databricks bundle run ml_cc_inference --target dev
+# ============================================================
+
+resources:
+  jobs:
+
+    ml_cc_inference:
+      name: "asb-ml-cc-inference-${var.environment}"
+      description: "Credit Card Scorecard — Batch Scoring + Monitoring (uses @Champion)"
+      tags:
+        product: "credit_card"
+        pipeline: "inference"
+
+      schedule:
+        quartz_cron_expression: "0 0 7 ? * MON"
+        timezone_id: "Pacific/Auckland"
+        pause_status: PAUSED
+
+      parameters:
+        - name: catalog
+          default: "${var.catalog}"
+        - name: environment
+          default: "${var.environment}"
+
+      tasks:
+        - task_key: model_scoring
+          notebook_task:
+            notebook_path: ../notebooks/ml/07_model_scoring.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+        - task_key: model_monitoring
+          depends_on:
+            - task_key: model_scoring
+          notebook_task:
+            notebook_path: ../notebooks/ml/08_model_monitoring.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+      environments:
+        - environment_key: ml_default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-feature-engineering

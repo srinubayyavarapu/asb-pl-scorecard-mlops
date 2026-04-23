@@ -9,7 +9,8 @@
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
-catalog = "asb_dev"
+dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
 # COMMAND ----------
