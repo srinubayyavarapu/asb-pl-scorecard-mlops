@@ -1,45 +1,46 @@
-# ASB Bank SAS-to-Databricks Migration Framework
-# Databricks Asset Bundles Configuration
+# ASB Credit Risk MLOps — Databricks Asset Bundle
+# Credit Card Behaviour Scorecard (demo bundle)
 
 bundle:
-  name: asb-sas-to-dbx-migration
+  name: asb-credit-risk-mlops
 
 variables:
   environment:
-    description: "Deployment environment (dev, stg, prod)"
+    description: "Deployment environment (dev / stg / prod)"
     default: dev
   catalog:
-    description: "Unity Catalog name"
+    description: "Unity Catalog — one per environment"
     default: asb_dev
-  bronze_schema:
-    description: "Bronze layer schema"
-    default: retail_bronze
-  silver_schema:
-    description: "Silver layer schema"
-    default: retail_silver
-  gold_schema:
-    description: "Gold layer schema"
-    default: retail_gold
-  ml_schema:
-    description: "ML assets schema (models, features, experiments)"
-    default: retail_ml
-  snowflake_connection:
-    description: "Snowflake connection name in Unity Catalog"
-    default: asb_snowflake_connection
-  warehouse_id:
-    description: "SQL Warehouse ID for federation queries"
-    default: ""
+  notify_email:
+    description: "Email for ML pipeline notifications"
+    default: "bayyavarapusrinu1@gmail.com"
 
-# Include resource definitions from separate files
 include:
-  - resources/*.yml
+  - resources/ml_*.yml   # ML bundle only — excludes ETL (etl_ingestion_job.yml)
+
+sync:
+  exclude:
+    - docs/**
+    - data/**
+    - reference/**
+    - tests/**
+    - .azure-pipelines/**
+    - .claude/**
+    - configs/ingestion/**
+    - notebooks/etl/**
+    - notebooks/setup/00_init_workspace.py
+    - notebooks/setup/00_setup_sample_data.py
+    - notebooks/setup/01_setup_snowflake_federation.py
+    - notebooks/setup/02_setup_uc_permissions.py
+    - CLAUDE.md
+    - "*.md"
 
 # ──────────────────────────────────────────────
-# Targets (Environments)
+# Targets — one UC-enabled workspace per environment
 # ──────────────────────────────────────────────
 
 targets:
-  # ── DEV ──
+
   dev:
     default: true
     mode: development
@@ -47,28 +48,18 @@ targets:
       environment: dev
       catalog: asb_dev
     workspace:
-      host: https://dbc-1121950f-87d6.cloud.databricks.com
+      host: https://adb-7405618935161265.5.azuredatabricks.net
 
-  # ── STAGING (mimicked on same workspace with naming convention) ──
   stg:
     variables:
       environment: stg
-      catalog: asb_dev          # Same workspace - use asb_dev catalog
-      bronze_schema: retail_bronze_stg
-      silver_schema: retail_silver_stg
-      gold_schema: retail_gold_stg
-      ml_schema: retail_ml_stg
+      catalog: asb_stg
     workspace:
-      host: https://dbc-1121950f-87d6.cloud.databricks.com
+      host: https://adb-7405610706859452.12.azuredatabricks.net
 
-  # ── PRODUCTION (mimicked on same workspace with naming convention) ──
   prod:
     variables:
       environment: prod
-      catalog: asb_dev          # Same workspace - use asb_dev catalog
-      bronze_schema: retail_bronze_prod
-      silver_schema: retail_silver_prod
-      gold_schema: retail_gold_prod
-      ml_schema: retail_ml_prod
+      catalog: asb_prd
     workspace:
-      host: https://dbc-1121950f-87d6.cloud.databricks.com
+      host: https://adb-7405614555582503.3.azuredatabricks.net

@@ -1,15 +1,20 @@
 # ============================================================
 # ML Scorecard Framework - CD Pipeline (Production)
 # ============================================================
-# Triggered: automatically when code is merged to release branch
+# Triggers on push to `release`.
+#   1. Validate bundle for prod
+#   2. Deploy bundle (job definitions only) to prod
 #
-# Flow:
-#   1. CI pipeline passes on main -> auto-creates PR: main -> release
-#   2. Reviewer approves and merges PR to release
-#   3. This CD pipeline triggers:
-#      - Validate bundle for production
-#      - Deploy to production
-#      - Run ML pipeline in production
+# Production jobs run on their own schedules:
+#   - Training:    1st of each month
+#   - Deployment:  manual / triggered by MLflow Deployment Jobs
+#   - Inference:   weekly (Monday)
+#
+# Promotion to @Champion requires human approval via UC tag in prod.
+#
+# Variable group: asb-ml-vars-prod
+#   DATABRICKS_HOST  - prod workspace URL
+#   DATABRICKS_TOKEN - prod PAT / SPN token
 # ============================================================
 
 trigger:
@@ -18,15 +23,16 @@ trigger:
       - release
   paths:
     include:
-      - configs/ml/**
       - notebooks/ml/**
-      - resources/ml_scorecard_job.yml
+      - resources/ml_*.yml
       - databricks.yml
 
 pr: none
 
 variables:
-  - group: asb-ml-variables
+  - group: asb-ml-vars-prod
+  - name: DBX_CLI_VERSION
+    value: "0.298.0"
 
 stages:
 
@@ -49,11 +55,12 @@ stages:
                   clean: true
 
                 - script: |
-                    curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-                  displayName: "Install Databricks CLI"
-
-                - script: databricks version
-                  displayName: "Verify CLI installation"
+                    set -e
+                    curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+                    unzip -o dbx.zip -d /tmp/dbx
+                    sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+                    databricks --version
+                  displayName: "Install Databricks CLI v$(DBX_CLI_VERSION)"
 
                 - script: databricks bundle validate -t prod
                   displayName: "Validate bundle for prod"
@@ -62,28 +69,18 @@ stages:
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
                 - script: databricks bundle deploy -t prod
-                  displayName: "Deploy bundle to prod"
+                  displayName: "Deploy bundle to prod (job definitions only)"
                   env:
                     DATABRICKS_HOST: $(DATABRICKS_HOST)
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
                 - script: |
-                    pip install pyyaml -q
-                    python -c "
-                    import yaml, subprocess, sys
-                    with open('configs/ml/model_registry.yaml') as f:
-                        models = yaml.safe_load(f)['models']
-                    for name, cfg in models.items():
-                        if cfg.get('is_active'):
-                            job_name = f'ml_{name}'
-                            print(f'Running: {job_name}')
-                            result = subprocess.run(['databricks', 'bundle', 'run', job_name, '-t', 'prod'], capture_output=False)
-                            if result.returncode != 0:
-                                print(f'FAILED: {job_name}')
-                                sys.exit(1)
-                    print('All active models passed')
-                    "
-                  displayName: "Run active ML pipelines in prod"
-                  env:
-                    DATABRICKS_HOST: $(DATABRICKS_HOST)
-                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+                    echo "=========================================="
+                    echo "Production deployment complete"
+                    echo "=========================================="
+                    echo ""
+                    echo "Job definitions deployed to prod workspace."
+                    echo "Jobs will execute via their own schedules, or can be"
+                    echo "triggered manually. Model promotion requires human"
+                    echo "approval via UC tag on the @Challenger version."
+                  displayName: "Deployment summary"

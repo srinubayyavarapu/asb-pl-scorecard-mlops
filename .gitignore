@@ -28,6 +28,18 @@ desktop.ini
 *.key
 credentials.json
 
+# Claude Code / AI tooling
+.claude/
+.mcp.json
+config/databricks-mcp/
+
 # Temporary files
 *.tmp
 *.log
+tmp_*.json
+
+# Local-only assets (not part of the bundle or repo)
+CLAUDE.md
+data/
+reference/
+docs/

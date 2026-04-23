@@ -1,0 +1,65 @@
+# ============================================================
+# ML Deployment Job — Credit Card Behaviour Scorecard
+# ============================================================
+# Evaluate → Approve → Deploy
+# Promotes @Challenger → @Champion in Unity Catalog.
+#
+# Usage: databricks bundle run ml_cc_deployment --target dev
+# ============================================================
+
+resources:
+  jobs:
+
+    ml_cc_deployment:
+      name: "asb-ml-cc-deployment-${var.environment}"
+      description: "Credit Card Scorecard — Evaluate, Approve, Deploy (@Challenger → @Champion)"
+      tags:
+        product: "credit_card"
+        pipeline: "deployment"
+
+      email_notifications:
+        on_failure:
+          - "${var.notify_email}"
+        on_success:
+          - "${var.notify_email}"
+
+      parameters:
+        - name: catalog
+          default: "${var.catalog}"
+        - name: environment
+          default: "${var.environment}"
+
+      tasks:
+        - task_key: model_evaluation
+          notebook_task:
+            notebook_path: ../notebooks/ml/04_model_evaluation.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: ml_default
+
+        - task_key: model_approval
+          depends_on:
+            - task_key: model_evaluation
+          notebook_task:
+            notebook_path: ../notebooks/ml/05_model_approval.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+          environment_key: ml_default
+
+        - task_key: model_deployment
+          depends_on:
+            - task_key: model_approval
+          notebook_task:
+            notebook_path: ../notebooks/ml/06_model_deployment.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+          environment_key: ml_default
+
+      environments:
+        - environment_key: ml_default
+          spec:
+            client: "2"
+            dependencies:
+              - databricks-feature-engineering

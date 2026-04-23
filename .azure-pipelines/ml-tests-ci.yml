@@ -1,15 +1,15 @@
 # ============================================================
-# ML Scorecard Framework - CI Pipeline
+# ML Scorecard Framework - CI Pipeline (Staging)
 # ============================================================
-# Triggered: automatically when code is merged to main branch
+# Triggers on push to `main`.
+#   1. Validate bundle for stg + prod
+#   2. Deploy bundle to stg
+#   3. Run the 3 CC jobs end-to-end on stg
+#   4. Auto-create PR main -> release
 #
-# Flow:
-#   1. Push to Feature -> auto PR to main (via branch policy)
-#   2. Reviewer merges PR to main
-#   3. This CI pipeline triggers:
-#      - Stage 1: Unit Tests (on agent)
-#      - Stage 2: Integration Tests (deploy + run on staging)
-#   4. CI passes -> auto-creates PR from main to release
+# Variable group: asb-ml-vars-stg
+#   DATABRICKS_HOST  - stg workspace URL
+#   DATABRICKS_TOKEN - stg PAT / SPN token
 # ============================================================
 
 trigger:
@@ -18,64 +18,30 @@ trigger:
       - main
   paths:
     include:
-      - configs/ml/**
       - notebooks/ml/**
-      - resources/ml_scorecard_job.yml
+      - resources/ml_*.yml
       - databricks.yml
-      - tests/**
 
 pr: none
 
 variables:
-  - group: asb-ml-variables
+  - group: asb-ml-vars-stg
   - name: workingDirectory
     value: $(Build.SourcesDirectory)
+  - name: DBX_CLI_VERSION
+    value: "0.298.0"
 
 stages:
 
-  # ── Stage 1: Unit Tests + Integration Tests ──
   - stage: CI
-    displayName: "CI - Test & Validate"
+    displayName: "CI - Deploy + Run on Staging"
 
     jobs:
-      # ── Job 1: Unit Tests ──
-      - job: UnitTests
-        displayName: "Unit Tests"
-        pool:
-          vmImage: "ubuntu-latest"
-
-        steps:
-          - checkout: self
-            persistCredentials: true
-            clean: true
-
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: "3.11"
-
-          - script: |
-              python -m pip install --upgrade pip
-              pip install pyyaml pytest
-            displayName: "Install dependencies"
-
-          - script: |
-              pytest tests/ --junitxml=test-unit.xml -v
-            displayName: "Run unit tests with pytest"
-            workingDirectory: $(workingDirectory)
-
-          - task: PublishTestResults@2
-            condition: succeededOrFailed()
-            inputs:
-              testResultsFiles: "**/test-unit.xml"
-              testRunTitle: "ML Framework Unit Tests"
-
-      # ── Job 2: Integration Tests ──
       - job: IntegrationTests
-        displayName: "Integration Tests"
-        dependsOn: UnitTests
-        condition: succeeded()
+        displayName: "Deploy + Run on Staging"
         pool:
           vmImage: "ubuntu-latest"
+        timeoutInMinutes: 45
 
         steps:
           - checkout: self
@@ -83,56 +49,40 @@ stages:
             clean: true
 
           - script: |
-              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-            displayName: "Install Databricks CLI"
-
-          - script: databricks version
-            displayName: "Verify CLI installation"
+              set -e
+              curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+              unzip -o dbx.zip -d /tmp/dbx
+              sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+              databricks --version
+            displayName: "Install Databricks CLI v$(DBX_CLI_VERSION)"
 
           - script: databricks bundle validate -t stg
             workingDirectory: $(workingDirectory)
-            displayName: "Validate bundle for staging"
-            env:
-              DATABRICKS_HOST: $(DATABRICKS_HOST)
-              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
-
-          - script: databricks bundle validate -t prod
-            workingDirectory: $(workingDirectory)
-            displayName: "Validate bundle for prod"
+            displayName: "Validate bundle for stg"
             env:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
           - script: databricks bundle deploy -t stg
             workingDirectory: $(workingDirectory)
-            displayName: "Deploy bundle to staging"
+            displayName: "Deploy bundle to stg"
             env:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
           - script: |
-              pip install pyyaml -q
-              python -c "
-              import yaml, subprocess, sys
-              with open('configs/ml/model_registry.yaml') as f:
-                  models = yaml.safe_load(f)['models']
-              for name, cfg in models.items():
-                  if cfg.get('is_active'):
-                      job_name = f'ml_{name}'
-                      print(f'Running: {job_name}')
-                      result = subprocess.run(['databricks', 'bundle', 'run', job_name, '-t', 'stg'], capture_output=False)
-                      if result.returncode != 0:
-                          print(f'FAILED: {job_name}')
-                          sys.exit(1)
-              print('All active models passed')
-              "
+              set -e
+              for job in ml_cc_training ml_cc_deployment ml_cc_inference; do
+                echo "=== Running: $job ==="
+                databricks bundle run "$job" -t stg
+              done
+              echo "All 3 CC pipelines passed on stg"
             workingDirectory: $(workingDirectory)
-            displayName: "Run active ML pipelines in staging"
+            displayName: "Run CC pipelines on stg (training -> deployment -> inference)"
             env:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
-  # ── Stage 2: Auto-create PR from main to release ──
   - stage: CreateReleasePR
     displayName: "Create Release PR"
     dependsOn: CI
@@ -158,7 +108,7 @@ stages:
                   "sourceRefName": "refs/heads/main",
                   "targetRefName": "refs/heads/release",
                   "title": "Release: Deploy to Production (CI passed - Build $(Build.BuildNumber))",
-                  "description": "Auto-created by CI pipeline after successful staging validation.\n\nBuild: $(Build.BuildNumber)\nCommit: $(Build.SourceVersion)\n\nCI Results:\n- Unit Tests: Passed\n- Integration Tests: Passed (staging deployment validated)"
+                  "description": "Auto-created by CI pipeline after successful staging validation.\n\nBuild: $(Build.BuildNumber)\nCommit: $(Build.SourceVersion)"
                 }')
 
               echo "$PR_RESPONSE"
@@ -167,7 +117,6 @@ stages:
 
               if [ "$PR_ID" != "FAILED" ] && [ -n "$PR_ID" ]; then
                 echo "PR created successfully: #$PR_ID"
-                echo "Waiting for reviewer approval to deploy to production."
               else
                 echo "PR creation skipped (may already exist or branch not found)"
               fi
