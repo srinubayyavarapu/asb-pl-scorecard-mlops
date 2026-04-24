@@ -1,5 +1,4 @@
 # Databricks notebook source
-
 # MAGIC %md
 # MAGIC # 01 - Data Preparation
 # MAGIC Credit Card Behaviour Scorecard — PD model
@@ -67,7 +66,7 @@ print(f"Loaded: {df.count():,} rows, {len(df.columns)} cols")
 # COMMAND ----------
 
 df = df.withColumn(TARGET, F.col(TARGET).cast("integer"))
-
+#this is dataframe
 total = df.count()
 bad = df.filter(F.col(TARGET) == 1).count()
 good = total - bad
