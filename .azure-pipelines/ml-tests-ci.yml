@@ -1,11 +1,12 @@
 # ============================================================
-# ML Scorecard Framework - CI Pipeline (Staging)
+# ASB PL Application Scorecard - CI Pipeline (Staging)
 # ============================================================
 # Triggers on push to `main`.
-#   1. Validate bundle for stg + prod
+#   1. Validate bundle for stg
 #   2. Deploy bundle to stg
-#   3. Run the 3 CC jobs end-to-end on stg
-#   4. Auto-create PR main -> release
+#   3. Run ETL pipeline (Snowflake -> Bronze -> Silver -> Gold)
+#   4. Run the 3 ML jobs end-to-end on stg (training, deployment, inference)
+#   5. Auto-create PR main -> release
 #
 # Variable group: asb-ml-vars-stg
 #   DATABRICKS_HOST  - stg workspace URL
@@ -19,7 +20,11 @@ trigger:
   paths:
     include:
       - notebooks/ml/**
+      - notebooks/etl/**
+      - notebooks/utils/**
       - resources/ml_*.yml
+      - resources/etl_*.yml
+      - configs/ingestion/**
       - databricks.yml
 
 pr: none
@@ -72,13 +77,24 @@ stages:
 
           - script: |
               set -e
-              for job in ml_cc_training ml_cc_deployment ml_cc_inference; do
+              echo "=== Running: etl_pl_application_pipeline (Snowflake -> Bronze -> Silver -> Gold) ==="
+              databricks bundle run etl_pl_application_pipeline -t stg
+              echo "ETL pipeline complete on stg"
+            workingDirectory: $(workingDirectory)
+            displayName: "Run ETL pipeline on stg"
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: |
+              set -e
+              for job in ml_pl_training ml_pl_deployment ml_pl_inference; do
                 echo "=== Running: $job ==="
                 databricks bundle run "$job" -t stg
               done
-              echo "All 3 CC pipelines passed on stg"
+              echo "All 3 PL ML pipelines passed on stg"
             workingDirectory: $(workingDirectory)
-            displayName: "Run CC pipelines on stg (training -> deployment -> inference)"
+            displayName: "Run PL ML pipelines on stg (training -> deployment -> inference)"
             env:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)

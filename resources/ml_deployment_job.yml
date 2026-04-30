@@ -1,21 +1,27 @@
 # ============================================================
-# ML Deployment Job — Credit Card Behaviour Scorecard
+# ML Deployment Job — PL Application Scorecard
 # ============================================================
-# Evaluate → Approve → Deploy
-# Promotes @Challenger → @Champion in Unity Catalog.
+# Evaluate -> Approve -> Deploy
+# Promotes @Challenger -> @Champion in Unity Catalog.
 #
-# Usage: databricks bundle run ml_cc_deployment --target dev
+# Bound to the UC model as an MLflow 3 Deployment Job.
+# Auto-fired by Databricks when a new model version is registered.
+# Receives `model_name` and `model_version` from the platform.
+#
+# Manual trigger:
+#   databricks bundle run ml_pl_deployment --target dev
 # ============================================================
 
 resources:
   jobs:
 
-    ml_cc_deployment:
-      name: "asb-ml-cc-deployment-${var.environment}"
-      description: "Credit Card Scorecard — Evaluate, Approve, Deploy (@Challenger → @Champion)"
+    ml_pl_deployment:
+      name: "asb-ml-pl-deployment-${var.environment}"
+      description: "PL Application Scorecard — Evaluate, Approve, Deploy (@Challenger -> @Champion)"
       tags:
-        product: "credit_card"
+        product: "personal_loan"
         pipeline: "deployment"
+        scorecard_variant: "application"
 
       email_notifications:
         on_failure:
@@ -28,6 +34,10 @@ resources:
           default: "${var.catalog}"
         - name: environment
           default: "${var.environment}"
+        - name: model_name
+          default: ""
+        - name: model_version
+          default: ""
 
       tasks:
         - task_key: model_evaluation
@@ -35,6 +45,8 @@ resources:
             notebook_path: ../notebooks/ml/04_model_evaluation.py
             base_parameters:
               catalog: "${var.catalog}"
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
           environment_key: ml_default
 
         - task_key: model_approval
@@ -45,6 +57,8 @@ resources:
             base_parameters:
               catalog: "${var.catalog}"
               environment: "${var.environment}"
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
           environment_key: ml_default
 
         - task_key: model_deployment
@@ -55,6 +69,8 @@ resources:
             base_parameters:
               catalog: "${var.catalog}"
               environment: "${var.environment}"
+              model_name: "{{job.parameters.model_name}}"
+              model_version: "{{job.parameters.model_version}}"
           environment_key: ml_default
 
       environments:

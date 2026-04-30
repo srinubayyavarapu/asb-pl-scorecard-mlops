@@ -2,9 +2,9 @@
 
 # MAGIC %md
 # MAGIC # 06 - Model Deployment
-# MAGIC Credit Card Behaviour Scorecard
+# MAGIC PL Application Scorecard
 # MAGIC
-# MAGIC Promote `@Challenger` → `@Champion` in Unity Catalog.
+# MAGIC Promote `@Challenger` -> `@Champion` in Unity Catalog.
 # MAGIC Gated on the `approval` tag set by notebook 05.
 
 # COMMAND ----------
@@ -14,19 +14,20 @@ import mlflow
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Config
-
-# COMMAND ----------
-
 dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
 dbutils.widgets.text("environment", "dev", "Environment (dev/stg/prod)")
+dbutils.widgets.text("model_name", "", "UC model (auto-set by Deployment Jobs)")
+dbutils.widgets.text("model_version", "", "Version (auto-set by Deployment Jobs)")
+
 catalog = dbutils.widgets.get("catalog").strip()
 environment = dbutils.widgets.get("environment").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME = "cc_behaviour_scorecard"
-UC_MODEL   = f"{catalog}.retail_ml.cc_behaviour_scorecard"
+MODEL_NAME = "pl_application_scorecard"
+UC_MODEL_DEFAULT = f"{catalog}.retail_ml.pl_application_scorecard"
+UC_MODEL   = dbutils.widgets.get("model_name").strip() or UC_MODEL_DEFAULT
+
+DEPLOY_JOB_VERSION = dbutils.widgets.get("model_version").strip()
 
 APPROVAL_TAG_KEY   = "approval"
 APPROVAL_TAG_VALUE = "approved"
@@ -37,55 +38,46 @@ print(f"Environment: {environment}")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Verify Approval
-
-# COMMAND ----------
-
 start_time = datetime.now()
-
 mlflow.set_registry_uri("databricks-uc")
 client = mlflow.tracking.MlflowClient()
 
-challenger_info = client.get_model_version_by_alias(UC_MODEL, "Challenger")
-challenger_version = challenger_info.version
+if DEPLOY_JOB_VERSION:
+    challenger_version = DEPLOY_JOB_VERSION
+    challenger_info = client.get_model_version(UC_MODEL, challenger_version)
+else:
+    challenger_info = client.get_model_version_by_alias(UC_MODEL, "Challenger")
+    challenger_version = challenger_info.version
+
 _raw_tags = getattr(challenger_info, "tags", None) or {}
 tags = dict(_raw_tags) if isinstance(_raw_tags, dict) else {t.key: t.value for t in _raw_tags}
 
 if tags.get(APPROVAL_TAG_KEY) != APPROVAL_TAG_VALUE:
     raise Exception(
-        f"v{challenger_version} not approved. Tag '{APPROVAL_TAG_KEY}'='{tags.get(APPROVAL_TAG_KEY, 'not_set')}', expected '{APPROVAL_TAG_VALUE}'."
+        f"v{challenger_version} not approved. Tag '{APPROVAL_TAG_KEY}'='{tags.get(APPROVAL_TAG_KEY, 'not_set')}', "
+        f"expected '{APPROVAL_TAG_VALUE}'."
     )
 
 print(f"Challenger v{challenger_version}: APPROVED")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Record Previous Champion (Audit)
-
-# COMMAND ----------
-
+# Record previous Champion (audit trail)
 old_champion_version = None
 try:
     old_champion_info = client.get_model_version_by_alias(UC_MODEL, "Champion")
     old_champion_version = old_champion_info.version
     print(f"Previous Champion: v{old_champion_version}")
 except Exception:
-    print("No previous Champion — first deployment")
+    print("No previous Champion -- first deployment")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Promote @Challenger → @Champion
-
-# COMMAND ----------
-
+# Promote
 client.set_registered_model_alias(UC_MODEL, "Champion", challenger_version)
-print(f"Promoted: v{challenger_version} → @Champion")
+print(f"Promoted: v{challenger_version} -> @Champion")
 
-# Remove @Challenger alias — a promoted version should carry only @Champion.
-# A fresh training run will register the next version and set @Challenger on it.
+# Remove @Challenger — promoted version carries Champion only
 try:
     client.delete_registered_model_alias(UC_MODEL, "Challenger")
     print(f"Removed @Challenger alias (v{challenger_version} is now @Champion only)")
@@ -103,14 +95,9 @@ if old_champion_version:
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Summary
-
-# COMMAND ----------
-
 elapsed = (datetime.now() - start_time).total_seconds()
-print(f"\n{'='*50}\nDEPLOYMENT COMPLETE\n{'='*50}")
-print(f"Promoted:    v{challenger_version} → @Champion")
+print(f"\n{'='*55}\nDEPLOYMENT COMPLETE\n{'='*55}")
+print(f"Promoted:    v{challenger_version} -> @Champion")
 print(f"Previous:    {'v' + str(old_champion_version) if old_champion_version else 'None'}")
 print(f"Environment: {environment}")
 print(f"Elapsed:     {elapsed:.1f}s")

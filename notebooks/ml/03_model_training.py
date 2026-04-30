@@ -2,12 +2,17 @@
 
 # MAGIC %md
 # MAGIC # 03 - Model Training
-# MAGIC Credit Card Behaviour Scorecard
+# MAGIC PL Application Scorecard
 # MAGIC
-# MAGIC 1. Train Champion (Logistic Regression) + Challengers (Random Forest, Neural Network)
-# MAGIC 2. GridSearchCV hyperparameter tuning
-# MAGIC 3. Log to MLflow with UC Feature Engineering lineage
-# MAGIC 4. Register best model as `@Challenger` in Unity Catalog
+# MAGIC 1. Initial fit: Logistic Regression on **Funded** DEV (Bad/Good only)
+# MAGIC 2. Score Rejected applicants (NotFunded) with the initial model
+# MAGIC 3. **Reject Inference** — assign inferred labels to Rejected (parcelling-style:
+# MAGIC    duplicate-and-weight by predicted Bad probability)
+# MAGIC 4. Final fit: LR on Funded ⊕ inferred-Rejected
+# MAGIC 5. Log coefficients + p-values + odds ratios
+# MAGIC 6. Register best model as `@Challenger` in Unity Catalog
+# MAGIC
+# MAGIC LR is the regulatory-blessed choice per ASB walkthrough — no challenger algorithms here.
 
 # COMMAND ----------
 
@@ -16,9 +21,8 @@ from datetime import datetime
 import mlflow, mlflow.sklearn
 from mlflow.models import infer_signature
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, roc_curve
 import numpy as np
 import pandas as pd
@@ -36,34 +40,23 @@ dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME    = "cc_behaviour_scorecard"
-TARGET        = "defaulted"
-PRIMARY_KEY   = "customer_id"
+MODEL_NAME    = "pl_application_scorecard"
+TARGET        = "target_flag"
 
-FEATURE_TABLE = f"{catalog}.retail_ml.cc_feature_store"
-UC_MODEL      = f"{catalog}.retail_ml.cc_behaviour_scorecard"
-EXPERIMENT    = "/Shared/ml/cc_behaviour_scorecard_experiments"
+FEATURE_TABLE = f"{catalog}.retail_ml.pl_feature_store"
+UC_MODEL      = f"{catalog}.retail_ml.pl_application_scorecard"
+EXPERIMENT    = "/Shared/ml/pl_application_scorecard_experiments"
 
-ALGORITHMS = {
-    "logistic_regression": {
-        "class": LogisticRegression, "role": "champion",
-        "params": {"penalty": "l2", "solver": "lbfgs", "max_iter": 1000},
-        "grid":   {"C": [0.01, 0.1, 1.0, 10.0]},
-    },
-    "random_forest": {
-        "class": RandomForestClassifier, "role": "challenger",
-        "params": {"random_state": 42},
-        "grid":   {"n_estimators": [100, 200], "max_depth": [5, 10]},
-    },
-    "neural_network": {
-        "class": MLPClassifier, "role": "challenger",
-        "params": {"activation": "relu", "max_iter": 500, "random_state": 42},
-        "grid":   {"hidden_layer_sizes": [(64, 32), (128, 64)]},
-    },
-}
+# Reject inference: parcelling-style augmentation.
+# For each Rejected applicant, duplicate as 2 rows: one labelled Good (weighted 1-p_bad),
+# one labelled Bad (weighted p_bad). LR uses sample_weight to honour the duplication.
+REJECT_INFERENCE_ENABLED = True
 
-# Minimum performance thresholds for the challenger to be registered
-MIN_HOLDOUT_AUC = 0.70
+# Minimum holdout AUC to register
+MIN_HOLDOUT_AUC = 0.65
+
+# LR config — penalty=l2 with C=1.0 is the regulatory baseline
+LR_PARAMS = {"penalty": "l2", "C": 1.0, "solver": "lbfgs", "max_iter": 1000}
 
 print(f"Model:      {MODEL_NAME}")
 print(f"UC Model:   {UC_MODEL}")
@@ -79,152 +72,234 @@ print(f"Experiment: {EXPERIMENT}")
 start_time = datetime.now()
 
 df = spark.table(FEATURE_TABLE)
-feature_cols = [f.strip() for f in df.select("_selected_features").first()[0].split(",") if f.strip()]
-print(f"Features ({len(feature_cols)}): {feature_cols}")
+selected_features = [
+    f.strip() for f in df.select("_selected_features").first()[0].split(",") if f.strip()
+]
+print(f"Selected features ({len(selected_features)}): {selected_features}")
 
-def to_xy(spark_df):
-    cols = feature_cols + [TARGET]
-    pdf = spark_df.select(*cols).toPandas().dropna(subset=feature_cols)
-    X = pdf[feature_cols].fillna(0)
+
+def to_xy_funded(spark_df):
+    """Convert a Funded subset (Bad/Good) to numeric X/y arrays.
+    Categoricals are integer-encoded via .cat.codes (label encoding).
+    """
+    cols = selected_features + [TARGET]
+    pdf = spark_df.select(*cols).toPandas().dropna(subset=selected_features)
+    X = pdf[selected_features].copy()
     for c in X.columns:
         if X[c].dtype == "object":
             X[c] = X[c].astype("category").cat.codes
-    return X, pdf[TARGET].astype(int)
+    y = (pdf[TARGET] == "Bad").astype(int)
+    return X.fillna(0), y, pdf.index
 
-df_dev = df.filter(F.col("_population") == "dev")
-df_holdout = df.filter(F.col("_population") == "holdout")
 
-X_dev, y_dev = to_xy(df_dev)
-X_holdout, y_holdout = to_xy(df_holdout)
+def to_x_rejected(spark_df):
+    """Same conversion but no target (Rejected has no Funded outcome)."""
+    cols = selected_features
+    pdf = spark_df.select(*cols, "application_id").toPandas().dropna(subset=selected_features)
+    X = pdf[selected_features].copy()
+    for c in X.columns:
+        if X[c].dtype == "object":
+            X[c] = X[c].astype("category").cat.codes
+    return X.fillna(0), pdf["application_id"].values
 
-print(f"Dev:     {len(X_dev):,}")
-print(f"Holdout: {len(X_holdout):,}")
+# Funded DEV (Bad/Good only — Indeterminate excluded as ambiguous)
+df_dev_funded = (
+    df.filter(F.col("_population") == "DEV")
+      .filter(F.col(TARGET).isin("Bad", "Good"))
+)
+df_hol_funded = (
+    df.filter(F.col("_population") == "HOL")
+      .filter(F.col(TARGET).isin("Bad", "Good"))
+)
+df_oot_funded = (
+    df.filter(F.col("_population") == "OOT")
+      .filter(F.col(TARGET).isin("Bad", "Good"))
+)
+# Rejected (TTD-only, NotFunded)
+df_rejected = df.filter(F.col(TARGET) == "Rejected")
+
+X_dev, y_dev, _ = to_xy_funded(df_dev_funded)
+X_hol, y_hol, _ = to_xy_funded(df_hol_funded)
+X_oot, y_oot, _ = to_xy_funded(df_oot_funded)
+X_rej, rej_ids  = to_x_rejected(df_rejected)
+
+print(f"\nDEV  Funded (Bad+Good): {len(X_dev):,}  bad_rate={y_dev.mean():.3f}")
+print(f"HOL  Funded:            {len(X_hol):,}  bad_rate={y_hol.mean():.3f}")
+print(f"OOT  Funded:            {len(X_oot):,}  bad_rate={y_oot.mean():.3f}")
+print(f"Rejected (TTD):         {len(X_rej):,}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Metrics
+# MAGIC ## Metrics + Coefficient Table Helpers
 
 # COMMAND ----------
 
-def metrics(y_true, y_prob):
-    auc = roc_auc_score(y_true, y_prob)
-    fpr, tpr, _ = roc_curve(y_true, y_prob)
+def credit_metrics(y, p):
+    auc = roc_auc_score(y, p)
+    fpr, tpr, _ = roc_curve(y, p)
     return {"auc": round(auc, 4), "gini": round(2 * auc - 1, 4), "ks": round(max(tpr - fpr), 4)}
 
+
+def lr_coefficient_table(model, feature_names, X, y, sample_weight=None):
+    """
+    Compute LR coefficients with approximate Wald-style p-values from
+    the diagonal of (X^T W X)^-1, weighted by predicted variance per row.
+    """
+    coef = model.coef_[0]
+    intercept = model.intercept_[0]
+    p_pred = model.predict_proba(X)[:, 1]
+    W = np.diag(p_pred * (1 - p_pred) * (sample_weight if sample_weight is not None else np.ones(len(p_pred))))
+    Xb = np.hstack([np.ones((X.shape[0], 1)), X.values])
+    try:
+        cov = np.linalg.pinv(Xb.T @ W @ Xb)
+        std_err = np.sqrt(np.diag(cov))[1:]   # skip intercept
+        z = coef / std_err
+        # 2-tailed normal p-value
+        from scipy.stats import norm
+        p_val = 2 * (1 - norm.cdf(np.abs(z)))
+    except Exception:
+        std_err = np.full_like(coef, np.nan)
+        z       = np.full_like(coef, np.nan)
+        p_val   = np.full_like(coef, np.nan)
+
+    return pd.DataFrame({
+        "feature": feature_names,
+        "coefficient": coef.round(6),
+        "std_err":     std_err.round(6),
+        "z":           z.round(4),
+        "p_value":     p_val.round(4),
+        "odds_ratio":  np.exp(coef).round(4),
+    }), intercept
+
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Train Champion + Challengers
+# MAGIC ## Train
 
 # COMMAND ----------
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_experiment(EXPERIMENT)
 
-results = []
-best_model = None
-best_auc = 0
+with mlflow.start_run(run_name=f"pl_lr_{datetime.now():%Y%m%d_%H%M}") as run:
+    mlflow.set_tag("model_name", MODEL_NAME)
+    mlflow.set_tag("algorithm", "logistic_regression")
+    mlflow.set_tag("reject_inference", str(REJECT_INFERENCE_ENABLED))
+    mlflow.log_param("num_features", len(selected_features))
+    mlflow.log_param("feature_list", json.dumps(selected_features))
+    mlflow.log_param("dev_rows", len(X_dev))
+    mlflow.log_param("dev_bad_rate", round(y_dev.mean(), 4))
+    mlflow.log_params({f"lr_{k}": v for k, v in LR_PARAMS.items()})
 
-for algo_name, cfg in ALGORITHMS.items():
-    print(f"\n{'='*50}\nTraining: {algo_name} ({cfg['role']})\n{'='*50}")
+    # Data lineage
+    dataset = mlflow.data.from_spark(
+        spark.table(FEATURE_TABLE).filter("_population = 'DEV'"),
+        table_name=FEATURE_TABLE, version="0",
+    )
+    mlflow.log_input(dataset, context="training_funded_only")
 
-    with mlflow.start_run(run_name=f"{algo_name}_{datetime.now():%Y%m%d_%H%M}") as run:
-        mlflow.set_tag("model_name", MODEL_NAME)
-        mlflow.set_tag("algorithm", algo_name)
-        mlflow.set_tag("role", cfg["role"])
-        mlflow.log_param("num_features", len(feature_cols))
-        mlflow.log_param("feature_list", json.dumps(feature_cols))
-        mlflow.log_param("dev_rows", len(X_dev))
-        mlflow.log_param("bad_rate", round(y_dev.mean(), 4))
+    # ── Step 1: Initial fit on Funded only ────────────────────────────────
+    initial = Pipeline([
+        ("scaler", StandardScaler()),
+        ("lr",     LogisticRegression(**LR_PARAMS)),
+    ])
+    initial.fit(X_dev, y_dev)
+    p_dev_init = initial.predict_proba(X_dev)[:, 1]
+    p_hol_init = initial.predict_proba(X_hol)[:, 1]
 
-        # Data lineage
-        dataset = mlflow.data.from_spark(
-            spark.table(FEATURE_TABLE).filter("_population = 'dev'"),
-            table_name=FEATURE_TABLE, version="0",
-        )
-        mlflow.log_input(dataset, context="training")
+    init_dev = credit_metrics(y_dev, p_dev_init)
+    init_hol = credit_metrics(y_hol, p_hol_init)
+    print(f"\n[Initial — Funded only]")
+    print(f"  DEV  AUC={init_dev['auc']}  Gini={init_dev['gini']}  KS={init_dev['ks']}")
+    print(f"  HOL  AUC={init_hol['auc']}  Gini={init_hol['gini']}  KS={init_hol['ks']}")
+    for k, v in init_dev.items(): mlflow.log_metric(f"init_dev_{k}", v)
+    for k, v in init_hol.items(): mlflow.log_metric(f"init_hol_{k}", v)
 
-        # GridSearchCV
-        searcher = GridSearchCV(
-            cfg["class"](**cfg["params"]), cfg["grid"],
-            scoring="roc_auc", cv=3, n_jobs=-1,
-        )
-        searcher.fit(X_dev, y_dev)
-        model = searcher.best_estimator_
-        mlflow.log_params({f"best_{k}": v for k, v in searcher.best_params_.items()})
-        print(f"Best params: {searcher.best_params_}")
+    # ── Step 2/3: Reject Inference (parcelling) ───────────────────────────
+    if REJECT_INFERENCE_ENABLED and len(X_rej) > 0:
+        p_rej = initial.predict_proba(X_rej)[:, 1]
+        # Augment training data: each rejected row appears twice — once labelled Good (1-p_bad weight),
+        # once labelled Bad (p_bad weight). LR refit uses sample_weight.
+        X_rej_good = X_rej.copy(); y_rej_good = np.zeros(len(X_rej)); w_rej_good = 1.0 - p_rej
+        X_rej_bad  = X_rej.copy(); y_rej_bad  = np.ones(len(X_rej));  w_rej_bad  = p_rej
 
-        y_prob_dev = model.predict_proba(X_dev)[:, 1]
-        y_prob_hol = model.predict_proba(X_holdout)[:, 1]
-        dev_m = metrics(y_dev, y_prob_dev)
-        hol_m = metrics(y_holdout, y_prob_hol)
+        X_aug = pd.concat([X_dev, X_rej_good, X_rej_bad], axis=0).reset_index(drop=True)
+        y_aug = np.concatenate([y_dev.values, y_rej_good, y_rej_bad])
+        w_aug = np.concatenate([np.ones(len(X_dev)), w_rej_good, w_rej_bad])
 
-        for k, v in dev_m.items():
-            mlflow.log_metric(f"dev_{k}", v)
-        for k, v in hol_m.items():
-            mlflow.log_metric(f"holdout_{k}", v)
+        print(f"\n[Reject Inference] augmented training set: {len(X_aug):,} rows ({len(X_dev):,} funded + 2*{len(X_rej):,} parcelled rejected)")
+        mlflow.log_metric("reject_inference_n_rejected", len(X_rej))
+        mlflow.log_metric("reject_inference_total_aug_rows", len(X_aug))
 
-        print(f"Dev:     Gini={dev_m['gini']}, KS={dev_m['ks']}, AUC={dev_m['auc']}")
-        print(f"Holdout: Gini={hol_m['gini']}, KS={hol_m['ks']}, AUC={hol_m['auc']}")
+        final = Pipeline([
+            ("scaler", StandardScaler()),
+            ("lr",     LogisticRegression(**LR_PARAMS)),
+        ])
+        final.fit(X_aug, y_aug, lr__sample_weight=w_aug)
+    else:
+        print("\n[Reject Inference] DISABLED — using initial Funded-only model")
+        final = initial
 
-        # Coefficients for LR
-        if algo_name == "logistic_regression" and hasattr(model, "coef_"):
-            coef_df = pd.DataFrame({"feature": feature_cols, "coefficient": model.coef_[0]})
-            coef_df["odds_ratio"] = np.exp(coef_df["coefficient"])
-            mlflow.log_table(coef_df, artifact_file="coefficients.json")
+    # ── Final-model evaluation ────────────────────────────────────────────
+    p_dev = final.predict_proba(X_dev)[:, 1]
+    p_hol = final.predict_proba(X_hol)[:, 1]
+    p_oot = final.predict_proba(X_oot)[:, 1]
 
-        # Log model as pure sklearn flavor (loadable via mlflow.sklearn.load_model)
-        signature = infer_signature(X_dev, y_prob_dev)
-        mlflow.sklearn.log_model(model, artifact_path="model", signature=signature)
+    m_dev = credit_metrics(y_dev, p_dev)
+    m_hol = credit_metrics(y_hol, p_hol)
+    m_oot = credit_metrics(y_oot, p_oot)
 
-        passed = hol_m["auc"] >= MIN_HOLDOUT_AUC
-        mlflow.set_tag("validation_passed", str(passed))
-        print(f"Threshold: holdout AUC {hol_m['auc']} >= {MIN_HOLDOUT_AUC} → {'PASS' if passed else 'FAIL'}")
+    print(f"\n[Final — after reject inference]")
+    print(f"  DEV  AUC={m_dev['auc']}  Gini={m_dev['gini']}  KS={m_dev['ks']}")
+    print(f"  HOL  AUC={m_hol['auc']}  Gini={m_hol['gini']}  KS={m_hol['ks']}")
+    print(f"  OOT  AUC={m_oot['auc']}  Gini={m_oot['gini']}  KS={m_oot['ks']}")
+    for k, v in m_dev.items(): mlflow.log_metric(f"final_dev_{k}", v)
+    for k, v in m_hol.items(): mlflow.log_metric(f"final_hol_{k}", v)
+    for k, v in m_oot.items(): mlflow.log_metric(f"final_oot_{k}", v)
 
-        results.append({
-            "algorithm": algo_name, "role": cfg["role"], "run_id": run.info.run_id,
-            "dev_gini": dev_m["gini"], "holdout_gini": hol_m["gini"],
-            "holdout_auc": hol_m["auc"], "passed": passed,
-        })
+    # ── Coefficient table (logged as MLflow table artifact) ───────────────
+    lr = final.named_steps["lr"]
+    coef_df, intercept = lr_coefficient_table(lr, selected_features, X_dev, y_dev)
+    coef_df.loc[len(coef_df)] = ["__intercept__", round(intercept, 6), None, None, None, None]
+    print("\n[Coefficients]")
+    print(coef_df.to_string(index=False))
+    mlflow.log_table(coef_df, artifact_file="coefficients.json")
 
-        if passed and hol_m["auc"] > best_auc:
-            best_auc = hol_m["auc"]
-            best_model = {
-                "algorithm": algo_name, "run_id": run.info.run_id,
-                "uri": f"runs:/{run.info.run_id}/model",
-                "holdout_auc": hol_m["auc"], "holdout_gini": hol_m["gini"],
-            }
+    # ── Log model with signature ──────────────────────────────────────────
+    signature = infer_signature(X_dev, p_dev)
+    mlflow.sklearn.log_model(final, artifact_path="model", signature=signature)
+    run_id = run.info.run_id
+
+    passed = m_hol["auc"] >= MIN_HOLDOUT_AUC
+    mlflow.set_tag("validation_passed", str(passed))
+    print(f"\nThreshold: HOL AUC {m_hol['auc']} >= {MIN_HOLDOUT_AUC} -> {'PASS' if passed else 'FAIL'}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Register Best Model as @Challenger in Unity Catalog
+# MAGIC ## Register Best Model as @Challenger
 
 # COMMAND ----------
 
-print("\nModel Comparison:")
-print(pd.DataFrame(results).to_string(index=False))
-
-if not best_model:
-    raise Exception("No model passed validation — nothing registered.")
-
-print(f"\nBest: {best_model['algorithm']} (AUC={best_model['holdout_auc']})")
+if not passed:
+    raise Exception(f"HOL AUC {m_hol['auc']} below threshold {MIN_HOLDOUT_AUC} — model not registered.")
 
 client = mlflow.tracking.MlflowClient()
-mv = mlflow.register_model(model_uri=best_model["uri"], name=UC_MODEL)
+mv = mlflow.register_model(model_uri=f"runs:/{run_id}/model", name=UC_MODEL)
 
-# Wait for READY
 for _ in range(30):
     if client.get_model_version(UC_MODEL, mv.version).status == "READY":
         break
-    time.sleep(10)
+    time.sleep(5)
 
 client.set_registered_model_alias(UC_MODEL, "Challenger", mv.version)
-client.set_model_version_tag(UC_MODEL, mv.version, "training_run_id", best_model["run_id"])
-client.set_model_version_tag(UC_MODEL, mv.version, "training_auc", str(best_model["holdout_auc"]))
+client.set_model_version_tag(UC_MODEL, mv.version, "training_run_id", run_id)
+client.set_model_version_tag(UC_MODEL, mv.version, "training_hol_auc", str(m_hol["auc"]))
+client.set_model_version_tag(UC_MODEL, mv.version, "training_oot_auc", str(m_oot["auc"]))
+client.set_model_version_tag(UC_MODEL, mv.version, "reject_inference", str(REJECT_INFERENCE_ENABLED))
 
-print(f"Registered: {UC_MODEL} v{mv.version} → @Challenger")
+print(f"\nRegistered: {UC_MODEL} v{mv.version} -> @Challenger")
 
 # COMMAND ----------
 
@@ -234,10 +309,11 @@ print(f"Registered: {UC_MODEL} v{mv.version} → @Challenger")
 # COMMAND ----------
 
 elapsed = (datetime.now() - start_time).total_seconds()
-print(f"\n{'='*50}\nTRAINING COMPLETE\n{'='*50}")
-print(f"Algorithms:   {len(results)}  (passed: {sum(1 for r in results if r['passed'])})")
-print(f"Best:         {best_model['algorithm']} (AUC={best_model['holdout_auc']})")
-print(f"Registered:   {UC_MODEL} v{mv.version} @Challenger")
-print(f"Elapsed:      {elapsed:.1f}s")
+print(f"\n{'='*55}\nTRAINING COMPLETE\n{'='*55}")
+print(f"Model:      logistic_regression{' + reject_inference' if REJECT_INFERENCE_ENABLED else ''}")
+print(f"Holdout:    AUC={m_hol['auc']}  Gini={m_hol['gini']}")
+print(f"OOT:        AUC={m_oot['auc']}  Gini={m_oot['gini']}")
+print(f"Registered: {UC_MODEL} v{mv.version} @Challenger")
+print(f"Elapsed:    {elapsed:.1f}s")
 
-dbutils.notebook.exit(f"SUCCESS|{MODEL_NAME}|{best_model['algorithm']}|training|{elapsed:.1f}s")
+dbutils.notebook.exit(f"SUCCESS|{MODEL_NAME}|v{mv.version}|training|{elapsed:.1f}s")

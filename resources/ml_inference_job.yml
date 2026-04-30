@@ -1,21 +1,22 @@
 # ============================================================
-# ML Inference Job — Credit Card Behaviour Scorecard
+# ML Inference Job — PL Application Scorecard
 # ============================================================
-# Batch Scoring → Monitoring
-# Loads @Champion from UC, scores, runs drift detection.
+# Batch Scoring -> Monitoring
+# Loads @Champion from UC, scores TTD, runs drift detection.
 #
-# Usage: databricks bundle run ml_cc_inference --target dev
+# Usage: databricks bundle run ml_pl_inference --target dev
 # ============================================================
 
 resources:
   jobs:
 
-    ml_cc_inference:
-      name: "asb-ml-cc-inference-${var.environment}"
-      description: "Credit Card Scorecard — Batch Scoring + Monitoring (uses @Champion)"
+    ml_pl_inference:
+      name: "asb-ml-pl-inference-${var.environment}"
+      description: "PL Application Scorecard — Batch Scoring + Monitoring (uses @Champion)"
       tags:
-        product: "credit_card"
+        product: "personal_loan"
         pipeline: "inference"
+        scorecard_variant: "application"
 
       schedule:
         quartz_cron_expression: "0 0 7 ? * MON"

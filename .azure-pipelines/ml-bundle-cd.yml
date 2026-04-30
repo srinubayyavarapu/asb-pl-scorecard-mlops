@@ -1,16 +1,16 @@
 # ============================================================
-# ML Scorecard Framework - CD Pipeline (Production)
+# ASB PL Application Scorecard - CD Pipeline (Production)
 # ============================================================
 # Triggers on push to `release`.
 #   1. Validate bundle for prod
-#   2. Deploy bundle (job definitions only) to prod
+#   2. Deploy bundle (ETL + ML job definitions) to prod
 #
 # Production jobs run on their own schedules:
+#   - ETL:         monthly (drives bronze refresh from Snowflake)
 #   - Training:    1st of each month
 #   - Deployment:  manual / triggered by MLflow Deployment Jobs
+#                  (requires `approval=approved` UC tag — APRA gate)
 #   - Inference:   weekly (Monday)
-#
-# Promotion to @Champion requires human approval via UC tag in prod.
 #
 # Variable group: asb-ml-vars-prod
 #   DATABRICKS_HOST  - prod workspace URL
@@ -24,7 +24,11 @@ trigger:
   paths:
     include:
       - notebooks/ml/**
+      - notebooks/etl/**
+      - notebooks/utils/**
       - resources/ml_*.yml
+      - resources/etl_*.yml
+      - configs/ingestion/**
       - databricks.yml
 
 pr: none
@@ -69,7 +73,7 @@ stages:
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
                 - script: databricks bundle deploy -t prod
-                  displayName: "Deploy bundle to prod (job definitions only)"
+                  displayName: "Deploy bundle to prod (ETL + ML job definitions)"
                   env:
                     DATABRICKS_HOST: $(DATABRICKS_HOST)
                     DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
@@ -79,8 +83,12 @@ stages:
                     echo "Production deployment complete"
                     echo "=========================================="
                     echo ""
-                    echo "Job definitions deployed to prod workspace."
-                    echo "Jobs will execute via their own schedules, or can be"
-                    echo "triggered manually. Model promotion requires human"
-                    echo "approval via UC tag on the @Challenger version."
+                    echo "Job definitions deployed to prod workspace:"
+                    echo "  - etl_pl_application_pipeline (Snowflake -> Bronze -> Silver -> Gold)"
+                    echo "  - ml_pl_training       (registers @Challenger)"
+                    echo "  - ml_pl_deployment     (gated on approval=approved UC tag)"
+                    echo "  - ml_pl_inference      (uses @Champion)"
+                    echo ""
+                    echo "Jobs execute on their own schedules. Model promotion"
+                    echo "requires manual UC tag approval per APRA validation."
                   displayName: "Deployment summary"

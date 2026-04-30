@@ -13,12 +13,15 @@ variables:
   catalog:
     description: "Unity Catalog — one per environment"
     default: asb_dev
+  snowflake_database:
+    description: "Snowflake source database for this environment (one DB per env, UC best practice)"
+    default: "DP_CREDITMANAGEMENT_DEV"
   notify_email:
     description: "Email for ML pipeline notifications"
     default: "bayyavarapusrinu1@gmail.com"
 
 include:
-  - resources/ml_*.yml   # ML bundle only — excludes ETL (etl_ingestion_job.yml)
+  - resources/*.yml   # Bundle includes both ETL and ML jobs
 
 sync:
   exclude:
@@ -26,10 +29,9 @@ sync:
     - data/**
     - reference/**
     - tests/**
+    - scripts/**
     - .azure-pipelines/**
     - .claude/**
-    - configs/ingestion/**
-    - notebooks/etl/**
     - notebooks/setup/00_init_workspace.py
     - notebooks/setup/00_setup_sample_data.py
     - notebooks/setup/01_setup_snowflake_federation.py
@@ -49,6 +51,7 @@ targets:
     variables:
       environment: dev
       catalog: asb_dev
+      snowflake_database: DP_CREDITMANAGEMENT_DEV
     workspace:
       host: https://adb-7405618935161265.5.azuredatabricks.net
 
@@ -56,6 +59,7 @@ targets:
     variables:
       environment: stg
       catalog: asb_stg
+      snowflake_database: DP_CREDITMANAGEMENT_STG
     workspace:
       host: https://adb-7405610706859452.12.azuredatabricks.net
 
@@ -63,5 +67,6 @@ targets:
     variables:
       environment: prod
       catalog: asb_prd
+      snowflake_database: DP_CREDITMANAGEMENT_PRD
     workspace:
       host: https://adb-7405614555582503.3.azuredatabricks.net
