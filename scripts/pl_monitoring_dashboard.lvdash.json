@@ -1,0 +1,416 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT MAX(challenger_version) FROM asb_dev.retail_ml.pl_evaluation_results)                   AS latest_model_version,\n",
+        "  (SELECT COUNT(*) FROM asb_dev.retail_gold.pl_scored_output)                                     AS total_scored,\n",
+        "  (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)                            AS last_run,\n",
+        "  (SELECT COUNT(*) FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "    WHERE alert_level='critical' AND run_timestamp=(SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)) AS critical_alerts,\n",
+        "  (SELECT COUNT(*) FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "    WHERE alert_level='warning' AND run_timestamp=(SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)) AS warning_alerts\n"
+      ]
+    },
+    {
+      "name": "ds_perf",
+      "displayName": "Performance metrics",
+      "queryLines": [
+        "SELECT population, metric, value\n",
+        "FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "WHERE metric IN ('gini','auc','ks')\n",
+        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)\n",
+        "ORDER BY metric, population\n"
+      ]
+    },
+    {
+      "name": "ds_psi",
+      "displayName": "PSI drift",
+      "queryLines": [
+        "SELECT population, ROUND(value, 4) AS psi, alert_level\n",
+        "FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "WHERE metric = 'psi_p_good'\n",
+        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)\n"
+      ]
+    },
+    {
+      "name": "ds_risk_grade",
+      "displayName": "Risk grade distribution",
+      "queryLines": [
+        "SELECT risk_grade, COUNT(*) AS n, ROUND(AVG(final_p_good), 4) AS avg_p_good\n",
+        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "GROUP BY risk_grade\n",
+        "ORDER BY risk_grade\n"
+      ]
+    },
+    {
+      "name": "ds_confusion",
+      "displayName": "Confusion matrix (prediction vs observed)",
+      "queryLines": [
+        "SELECT goodbadflag_inferred AS predicted,\n",
+        "       COALESCE(_observed_label, 'NULL (no ground truth)') AS observed,\n",
+        "       COUNT(*) AS n\n",
+        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "GROUP BY goodbadflag_inferred, _observed_label\n",
+        "ORDER BY observed, predicted\n"
+      ]
+    },
+    {
+      "name": "ds_score_dist",
+      "displayName": "Credit score distribution",
+      "queryLines": [
+        "SELECT FLOOR(credit_score/50)*50 AS score_bucket, COUNT(*) AS n, sample_flag\n",
+        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "GROUP BY FLOOR(credit_score/50)*50, sample_flag\n",
+        "ORDER BY score_bucket\n"
+      ]
+    },
+    {
+      "name": "ds_eval",
+      "displayName": "Evaluation history",
+      "queryLines": [
+        "SELECT challenger_version AS version,\n",
+        "       eval_rows, gini, weighted_gini_by_dp3, weighted_gini_by_pop,\n",
+        "       sas_correlation, comparison_result, evaluation_timestamp\n",
+        "FROM asb_dev.retail_ml.pl_evaluation_results\n",
+        "ORDER BY challenger_version DESC\n"
+      ]
+    },
+    {
+      "name": "ds_target_dist",
+      "displayName": "Target flag distribution",
+      "queryLines": [
+        "SELECT target_flag, sample_flag, COUNT(*) AS n\n",
+        "FROM asb_dev.retail_gold.pl_application_scorecard_data\n",
+        "GROUP BY target_flag, sample_flag\n",
+        "ORDER BY target_flag\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "main",
+      "displayName": "PL Application Scorecard - Monitoring",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_model_version",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [{"name": "latest_model_version", "expression": "`latest_model_version`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "latest_model_version", "displayName": "Latest model version"}
+              },
+              "frame": {"showTitle": true, "title": "Champion Version"}
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_total_scored",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [{"name": "total_scored", "expression": "`total_scored`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "total_scored", "displayName": "Applications scored"}
+              },
+              "frame": {"showTitle": true, "title": "Applications Scored"}
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_critical",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [{"name": "critical_alerts", "expression": "`critical_alerts`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "critical_alerts", "displayName": "Critical alerts"}
+              },
+              "frame": {"showTitle": true, "title": "Critical Alerts"}
+            }
+          },
+          "position": {"x": 4, "y": 0, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_warning",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [{"name": "warning_alerts", "expression": "`warning_alerts`"}],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "warning_alerts", "displayName": "Warning alerts"}
+              },
+              "frame": {"showTitle": true, "title": "Warning Alerts"}
+            }
+          },
+          "position": {"x": 6, "y": 0, "width": 2, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "perf_by_pop",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_perf",
+                  "fields": [
+                    {"name": "population", "expression": "`population`"},
+                    {"name": "metric", "expression": "`metric`"},
+                    {"name": "value", "expression": "`value`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "population", "scale": {"type": "categorical"}, "displayName": "Population"},
+                "y": {"fieldName": "value", "scale": {"type": "quantitative"}, "displayName": "Value"},
+                "color": {"fieldName": "metric", "scale": {"type": "categorical"}, "displayName": "Metric"}
+              },
+              "frame": {"showTitle": true, "title": "Performance metrics by population (Gini / AUC / KS)"}
+            }
+          },
+          "position": {"x": 0, "y": 3, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "psi_drift",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_psi",
+                  "fields": [
+                    {"name": "population", "expression": "`population`"},
+                    {"name": "psi", "expression": "`psi`"},
+                    {"name": "alert_level", "expression": "`alert_level`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "population", "scale": {"type": "categorical"}, "displayName": "Population"},
+                "y": {"fieldName": "psi", "scale": {"type": "quantitative"}, "displayName": "PSI"},
+                "color": {"fieldName": "alert_level", "scale": {"type": "categorical"}, "displayName": "Alert"}
+              },
+              "frame": {"showTitle": true, "title": "PSI drift on final_p_good (DEV vs HOL/OOT)"}
+            }
+          },
+          "position": {"x": 4, "y": 3, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "risk_grades",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_grade",
+                  "fields": [
+                    {"name": "risk_grade", "expression": "`risk_grade`"},
+                    {"name": "n", "expression": "`n`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "risk_grade", "scale": {"type": "categorical"}, "displayName": "Risk grade"},
+                "y": {"fieldName": "n", "scale": {"type": "quantitative"}, "displayName": "Applications"}
+              },
+              "frame": {"showTitle": true, "title": "Risk grade distribution (A1=highest, D=lowest)"}
+            }
+          },
+          "position": {"x": 0, "y": 9, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "score_dist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_score_dist",
+                  "fields": [
+                    {"name": "score_bucket", "expression": "`score_bucket`"},
+                    {"name": "n", "expression": "`n`"},
+                    {"name": "sample_flag", "expression": "`sample_flag`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "score_bucket", "scale": {"type": "quantitative"}, "displayName": "Credit score bucket"},
+                "y": {"fieldName": "n", "scale": {"type": "quantitative"}, "displayName": "Applications"},
+                "color": {"fieldName": "sample_flag", "scale": {"type": "categorical"}, "displayName": "Sample"}
+              },
+              "frame": {"showTitle": true, "title": "Credit score distribution by sample_flag"}
+            }
+          },
+          "position": {"x": 4, "y": 9, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "confusion_matrix",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_confusion",
+                  "fields": [
+                    {"name": "predicted", "expression": "`predicted`"},
+                    {"name": "observed", "expression": "`observed`"},
+                    {"name": "n", "expression": "`n`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "predicted", "displayName": "Predicted (model)"},
+                  {"fieldName": "observed", "displayName": "Observed (actual)"},
+                  {"fieldName": "n", "displayName": "Count"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Confusion matrix - prediction vs observed_label"}
+            }
+          },
+          "position": {"x": 0, "y": 15, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "eval_history",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_eval",
+                  "fields": [
+                    {"name": "version", "expression": "`version`"},
+                    {"name": "eval_rows", "expression": "`eval_rows`"},
+                    {"name": "gini", "expression": "`gini`"},
+                    {"name": "weighted_gini_by_dp3", "expression": "`weighted_gini_by_dp3`"},
+                    {"name": "weighted_gini_by_pop", "expression": "`weighted_gini_by_pop`"},
+                    {"name": "sas_correlation", "expression": "`sas_correlation`"},
+                    {"name": "comparison_result", "expression": "`comparison_result`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "version", "displayName": "Version"},
+                  {"fieldName": "eval_rows", "displayName": "Eval rows"},
+                  {"fieldName": "gini", "displayName": "Gini"},
+                  {"fieldName": "weighted_gini_by_dp3", "displayName": "Weighted Gini (DP3)"},
+                  {"fieldName": "weighted_gini_by_pop", "displayName": "Weighted Gini (pop)"},
+                  {"fieldName": "sas_correlation", "displayName": "SAS correlation"},
+                  {"fieldName": "comparison_result", "displayName": "Result"}
+                ]
+              },
+              "frame": {"showTitle": true, "title": "Model evaluation history (all challenger versions)"}
+            }
+          },
+          "position": {"x": 4, "y": 15, "width": 4, "height": 6}
+        },
+        {
+          "widget": {
+            "name": "target_dist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_target_dist",
+                  "fields": [
+                    {"name": "target_flag", "expression": "`target_flag`"},
+                    {"name": "sample_flag", "expression": "`sample_flag`"},
+                    {"name": "n", "expression": "`n`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {"fieldName": "target_flag", "scale": {"type": "categorical"}, "displayName": "target_flag"},
+                "y": {"fieldName": "n", "scale": {"type": "quantitative"}, "displayName": "Applications"},
+                "color": {"fieldName": "sample_flag", "scale": {"type": "categorical"}, "displayName": "Sample"}
+              },
+              "frame": {"showTitle": true, "title": "Target distribution: Good / Bad / Indeterminate / Rejected"}
+            }
+          },
+          "position": {"x": 0, "y": 21, "width": 8, "height": 6}
+        }
+      ]
+    }
+  ]
+}

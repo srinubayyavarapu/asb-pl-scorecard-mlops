@@ -1,21 +1,22 @@
 # ============================================================
-# ML Training Job — Credit Card Behaviour Scorecard
+# ML Training Job — PL Application Scorecard
 # ============================================================
-# Data Prep → Feature Engineering → Model Training
+# Data Prep -> Feature Engineering -> Model Training
 # Registers the best model as @Challenger in Unity Catalog.
 #
-# Usage: databricks bundle run ml_cc_training --target dev
+# Usage: databricks bundle run ml_pl_training --target dev
 # ============================================================
 
 resources:
   jobs:
 
-    ml_cc_training:
-      name: "asb-ml-cc-training-${var.environment}"
-      description: "Credit Card Scorecard — Training (@Challenger registration)"
+    ml_pl_training:
+      name: "asb-ml-pl-training-${var.environment}"
+      description: "PL Application Scorecard — Training (@Challenger registration)"
       tags:
-        product: "credit_card"
+        product: "personal_loan"
         pipeline: "training"
+        scorecard_variant: "application"
 
       schedule:
         quartz_cron_expression: "0 0 3 1 * ?"
@@ -60,3 +61,4 @@ resources:
             client: "2"
             dependencies:
               - databricks-feature-engineering
+              - scipy

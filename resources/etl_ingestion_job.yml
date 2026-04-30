@@ -1,93 +1,165 @@
 # ============================================================
-# ETL Ingestion Jobs: Snowflake → Bronze → Silver
+# ETL Pipeline: Snowflake -> Bronze -> Silver -> Gold
+# ASB PL Application Scorecard demo
 # ============================================================
-# Each table gets its own dedicated job with a two-task chain:
-#   Task 1: 01_ingest_snowflake (Snowflake → Bronze)
-#   Task 2: 02_bronze_to_silver (Bronze → Silver with SCD2)
+# Single orchestrating job. 4 source tables ingest in parallel,
+# each runs Bronze -> Silver, then a single Silver -> Gold join.
 #
-# This allows independent monitoring, scheduling, and reruns
-# per table without affecting other ingestions.
+# Source: DP_CREDITMANAGEMENT.MART (Snowflake, JDBC)
+# Inventory: configs/ingestion/master_table_inventory.csv (4 rows)
 #
 # Usage:
-#   databricks bundle run etl_hlacctbase_final --target dev
-#   databricks bundle run etl_hlacctbase_final_incr --target dev
+#   databricks bundle run etl_pl_application_pipeline --target dev
 # ============================================================
 
 resources:
   jobs:
 
-    # ── HLACCTBASE_FINAL (Historical - Full Load) ──
-    etl_hlacctbase_final:
-      name: "asb-etl-hlacctbase-final-${var.environment}"
-      description: "Home loan account base - historical full load (212 GB)"
+    etl_pl_application_pipeline:
+      name: "asb-etl-pl-application-pipeline-${var.environment}"
+      description: "PL Application — Snowflake to Gold (Bronze, Silver SCD2, Gold join)"
       tags:
-        source_table: "HLACCTBASE_FINAL"
-        load_type: "historical"
-        domain: "credit_risk"
+        product: "personal_loan"
+        pipeline: "etl"
+        scorecard_variant: "application"
 
       parameters:
-        - name: table_name
-          default: "HLACCTBASE_FINAL"
+        - name: catalog
+          default: "${var.catalog}"
+        - name: environment
+          default: "${var.environment}"
+        - name: snowflake_database
+          default: "${var.snowflake_database}"
         - name: force_full_load
           default: "N"
 
+      # ── Inventory rows in master_table_inventory.csv ──
+      # 0 = APPLICATIONS         (SCD2)
+      # 1 = FACILITIES           (SCD2)
+      # 2 = CREDIT_PERFORMANCE   (append-only)
+      # 3 = SAS_FINAL_SCORES     (SCD2)
       tasks:
-        - task_key: ingest_to_bronze
+
+        # ── APPLICATIONS ─────────────────────────────────────
+        - task_key: ingest_applications
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "{{job.parameters.table_name}}"
+              table_name: "APPLICATIONS"
+              catalog: "{{job.parameters.catalog}}"
+              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
-          environment_key: default
+          environment_key: etl_default
 
-        - task_key: bronze_to_silver
+        - task_key: silver_applications
           depends_on:
-            - task_key: ingest_to_bronze
+            - task_key: ingest_applications
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
-              table_name: "{{job.parameters.table_name}}"
-          environment_key: default
+              row_index: "0"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "retail_bronze"
+              silver_schema: "retail_silver"
+              gold_schema: "retail_gold"
+              ml_schema: "retail_ml"
+          environment_key: etl_default
 
-      environments:
-        - environment_key: default
-          spec:
-            client: "2"
-
-    # ── HLACCTBASE_FINAL_INCR (Incremental - SCD Type 2) ──
-    etl_hlacctbase_final_incr:
-      name: "asb-etl-hlacctbase-final-incr-${var.environment}"
-      description: "Home loan account base - incremental SCD2 load"
-      tags:
-        source_table: "HLACCTBASE_FINAL"
-        load_type: "incremental"
-        domain: "credit_risk"
-
-      parameters:
-        - name: table_name
-          default: "HLACCTBASE_FINAL"
-        - name: force_full_load
-          default: "N"
-
-      tasks:
-        - task_key: ingest_to_bronze
+        # ── FACILITIES ───────────────────────────────────────
+        - task_key: ingest_facilities
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "{{job.parameters.table_name}}"
+              table_name: "FACILITIES"
+              catalog: "{{job.parameters.catalog}}"
+              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
-          environment_key: default
+          environment_key: etl_default
 
-        - task_key: bronze_to_silver
+        - task_key: silver_facilities
           depends_on:
-            - task_key: ingest_to_bronze
+            - task_key: ingest_facilities
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
-              table_name: "{{job.parameters.table_name}}"
-          environment_key: default
+              row_index: "1"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "retail_bronze"
+              silver_schema: "retail_silver"
+              gold_schema: "retail_gold"
+              ml_schema: "retail_ml"
+          environment_key: etl_default
+
+        # ── CREDIT_PERFORMANCE (append-only) ─────────────────
+        - task_key: ingest_credit_performance
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "CREDIT_PERFORMANCE"
+              catalog: "{{job.parameters.catalog}}"
+              snowflake_database: "{{job.parameters.snowflake_database}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_credit_performance
+          depends_on:
+            - task_key: ingest_credit_performance
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "2"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "retail_bronze"
+              silver_schema: "retail_silver"
+              gold_schema: "retail_gold"
+              ml_schema: "retail_ml"
+          environment_key: etl_default
+
+        # ── SAS_FINAL_SCORES ─────────────────────────────────
+        - task_key: ingest_sas_scores
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "SAS_FINAL_SCORES"
+              catalog: "{{job.parameters.catalog}}"
+              snowflake_database: "{{job.parameters.snowflake_database}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_sas_scores
+          depends_on:
+            - task_key: ingest_sas_scores
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "3"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "retail_bronze"
+              silver_schema: "retail_silver"
+              gold_schema: "retail_gold"
+              ml_schema: "retail_ml"
+          environment_key: etl_default
+
+        # ── SILVER -> GOLD (joins all four) ──────────────────
+        - task_key: silver_to_gold
+          depends_on:
+            - task_key: silver_applications
+            - task_key: silver_facilities
+            - task_key: silver_credit_performance
+            - task_key: silver_sas_scores
+          notebook_task:
+            notebook_path: ../notebooks/etl/03_silver_to_gold.py
+            base_parameters:
+              catalog: "${var.catalog}"
+          environment_key: etl_default
 
       environments:
-        - environment_key: default
+        - environment_key: etl_default
           spec:
+            # Spark Snowflake connector + JDBC driver are pre-installed on
+            # Databricks serverless — no explicit dependencies required.
             client: "2"

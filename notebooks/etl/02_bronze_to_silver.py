@@ -171,8 +171,11 @@ is_scd2       = str(row.get("is_scd2", "N")).strip().upper() == "Y" \
                     if pd.notna(row.get("is_scd2")) else False
 scd2_col      = row["orderby_col"]   if pd.notna(row.get("orderby_col"))   else None
 
-# Build fully qualified table paths
-catalog       = row["target_catalog"]       if pd.notna(row.get("target_catalog"))       else env["catalog"]
+# Build fully qualified table paths.
+# Catalog ALWAYS comes from the env widget (bundle passes per-target ${var.catalog}) —
+# CSV's target_catalog column is per-env wrong by design and only used as a hard fallback.
+# Schemas may be CSV-overridden since they're env-stable (retail_bronze etc.).
+catalog       = env["catalog"] or (row["target_catalog"] if pd.notna(row.get("target_catalog")) else "asb_dev")
 bronze_schema = row["target_bronze_schema"] if pd.notna(row.get("target_bronze_schema")) else env["bronze_schema"]
 silver_schema = row["target_silver_schema"] if pd.notna(row.get("target_silver_schema")) else env["silver_schema"]
 
@@ -199,6 +202,15 @@ print(f"Is SCD2      : {is_scd2}")
 print(f"Primary Key  : {primary_key}")
 print(f"Order By Col : {orderby_col}")
 print(f"SCD2 Col     : {scd2_col}")
+
+# Switch Spark session to UC catalog — workspace default hive_metastore
+# is disabled, so saveAsTable fails with UC_HIVE_METASTORE_DISABLED_EXCEPTION
+# even on fully qualified names unless USE CATALOG is set explicitly.
+spark.sql(f"USE CATALOG {catalog}")
+
+# Ensure Silver schema exists (UC does not auto-create schemas on saveAsTable)
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{silver_schema}")
+spark.sql(f"USE SCHEMA {silver_schema}")
 
 # COMMAND ----------
 
@@ -398,6 +410,39 @@ def write_silver_historical(df, silver_tbl, primary_key=None):
     )
 
     return spark.table(silver_tbl).count(), "FULL_OVERWRITE"
+
+
+def write_silver_incremental_append(df, silver_tbl):
+    """
+    Append-only strategy for fact / event tables that never change.
+    Used when load_type='incremental' and is_scd2='N' (e.g. CREDIT_PERFORMANCE).
+
+    Each row is a point-in-time observation; updates / corrections are out of scope.
+    Initial run creates the table; subsequent runs append the watermark-filtered batch.
+    """
+    logger.info("    Strategy: APPEND ONLY (immutable facts)")
+
+    if not spark.catalog.tableExists(silver_tbl):
+        # First run — create the table from this batch
+        (
+            df.write
+            .format("delta")
+            .mode("overwrite")
+            .option("overwriteSchema", "true")
+            .saveAsTable(silver_tbl)
+        )
+        logger.info("    Initial load — created Silver table")
+    else:
+        (
+            df.write
+            .format("delta")
+            .mode("append")
+            .option("mergeSchema", "true")
+            .saveAsTable(silver_tbl)
+        )
+        logger.info(f"    Appended {df.count():,} new rows to Silver")
+
+    return spark.table(silver_tbl).count(), "APPEND_ONLY"
 
 
 def write_silver_incremental_scd2(df_incoming, silver_tbl, primary_key, merge_timestamp=None):
@@ -726,12 +771,18 @@ try:
     df, quality = check_quality(df, silver_name, pk_std)
 
     # ── WRITE TO SILVER ───────────────────────────────────────────────────────
+    # Three strategies, dispatched by (load_type, is_scd2):
+    #   historical          -> full overwrite
+    #   incremental + SCD2  -> SCD2 merge (close old, insert new current)
+    #   incremental + !SCD2 -> append only (immutable facts e.g. credit performance)
     if load_type == "incremental" and is_scd2 and pk_std:
         silver_count, strategy = write_silver_incremental_scd2(
             df_incoming=df,
             silver_tbl=silver_table,
             primary_key=pk_std
         )
+    elif load_type == "incremental" and not is_scd2:
+        silver_count, strategy = write_silver_incremental_append(df, silver_table)
     else:
         silver_count, strategy = write_silver_historical(df, silver_table, pk_std)
 
