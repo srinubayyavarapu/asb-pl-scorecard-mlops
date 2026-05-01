@@ -24,20 +24,41 @@ include:
   - resources/*.yml   # Bundle includes both ETL and ML jobs
 
 sync:
+  # Bundle deploys ONLY runtime artefacts: ETL + ML notebooks, utils,
+  # job YAMLs, and the metadata-driven master CSV. Everything else
+  # listed below stays in the git repo for reference but is not pushed
+  # to the workspace.
   exclude:
+    # Documentation, reference data, tests
     - docs/**
     - data/**
     - reference/**
     - tests/**
-    - scripts/**
-    - .azure-pipelines/**
-    - .claude/**
-    - notebooks/setup/00_init_workspace.py
-    - notebooks/setup/00_setup_sample_data.py
-    - notebooks/setup/01_setup_snowflake_federation.py
-    - notebooks/setup/02_setup_uc_permissions.py
+    - workflow-manager.md
     - CLAUDE.md
+    - README.md
     - "*.md"
+    # Operational scripts (run locally, not in workspace)
+    - scripts/**
+    # CI/CD and developer tooling
+    - .azure-pipelines/**
+    - .github/**
+    - .claude/**
+    - .vscode/**
+    - .idea/**
+    - .databricks/**
+    - .pytest_cache/**
+    # MCP / Claude Code helpers (kept in repo, not deployed)
+    - .mcp.json
+    - config/**
+    # Python build artefacts
+    - __pycache__/**
+    - "**/__pycache__/**"
+    - "*.pyc"
+    - .venv/**
+    - venv/**
+    # Setup notebooks - run manually one-off, not part of bundle
+    - notebooks/setup/**
 
 # ──────────────────────────────────────────────
 # Targets — one UC-enabled workspace per environment

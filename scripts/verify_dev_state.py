@@ -5,7 +5,7 @@ import time
 
 DBX = r"C:\Users\SrinuBayyavarapu\AppData\Local\Microsoft\WinGet\Packages\Databricks.DatabricksCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\databricks.exe"
 PROFILE = "DEV"
-WAREHOUSE_ID = "5cbb1fb77a1d43ff"
+WAREHOUSE_ID = "91ae4dd9138a7a49"
 
 
 def sql(stmt):

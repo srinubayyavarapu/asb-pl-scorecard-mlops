@@ -37,6 +37,8 @@ config/databricks-mcp/
 *.tmp
 *.log
 tmp_*.json
+tmp_*.txt
+.pytest_cache/
 
 # Local-only assets (not part of the bundle or repo)
 CLAUDE.md
