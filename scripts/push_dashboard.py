@@ -5,7 +5,7 @@ import subprocess
 
 DBX = r"C:\Users\SrinuBayyavarapu\AppData\Local\Microsoft\WinGet\Packages\Databricks.DatabricksCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\databricks.exe"
 PROFILE = "DEV"
-WAREHOUSE_ID = "5cbb1fb77a1d43ff"
+WAREHOUSE_ID = "91ae4dd9138a7a49"  # asb-demo-wh on dev workspace
 DASHBOARD_FILE = r"scripts\pl_monitoring_dashboard.lvdash.json"
 PARENT_PATH = "/Workspace/Users/srinu.bayyavarapu@celebaltech.com"
 
