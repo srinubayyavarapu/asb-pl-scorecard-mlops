@@ -89,12 +89,12 @@ Do NOT run this notebook interactively without parameters.
 
 # COMMAND ----------
 
-def get_control_table_path(catalog="asb_dev", schema="retail_bronze"):
+def get_control_table_path(catalog="dev_retail_modelling", schema="bronze"):
     """Get the fully qualified path for the ETL control table."""
     return f"{catalog}.{schema}._etl_control"
 
 
-def initialize_control_table(catalog="asb_dev", schema="retail_bronze"):
+def initialize_control_table(catalog="dev_retail_modelling", schema="bronze"):
     """
     Create the ETL control table if it doesn't exist.
     This table tracks processing watermarks for incremental loads.
@@ -121,7 +121,7 @@ def initialize_control_table(catalog="asb_dev", schema="retail_bronze"):
     return control_table
 
 
-def get_last_watermark(table_name, layer="bronze_to_silver", catalog="asb_dev", schema="retail_bronze"):
+def get_last_watermark(table_name, layer="bronze_to_silver", catalog="dev_retail_modelling", schema="bronze"):
     """
     Get the last processed watermark for a table/layer combination.
 
@@ -149,7 +149,7 @@ def get_last_watermark(table_name, layer="bronze_to_silver", catalog="asb_dev", 
 
 
 def update_watermark(table_name, layer, new_watermark, rows_processed, status="SUCCESS",
-                     run_id=None, catalog="asb_dev", schema="retail_bronze"):
+                     run_id=None, catalog="dev_retail_modelling", schema="bronze"):
     """
     Update the control table with new watermark after processing.
 
@@ -198,7 +198,7 @@ def update_watermark(table_name, layer, new_watermark, rows_processed, status="S
     print(f"Updated control table: {table_name}/{layer} -> watermark={new_watermark}, rows={rows_processed}, status={status}")
 
 
-def get_control_table_status(catalog="asb_dev", schema="retail_bronze"):
+def get_control_table_status(catalog="dev_retail_modelling", schema="bronze"):
     """Display the current state of all tracked tables."""
     control_table = get_control_table_path(catalog, schema)
 

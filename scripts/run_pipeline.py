@@ -68,8 +68,8 @@ for tbl, keys in tables_silver:
     nb = f'''# Databricks notebook source
 # COMMAND ----------
 from pyspark.sql import functions as F
-src = "asb_dev.retail_bronze.{tbl}"
-tgt = "asb_dev.retail_silver.{tbl}"
+src = "dev_retail_modelling.bronze.{tbl}"
+tgt = "dev_retail_modelling.silver.{tbl}"
 df = spark.table(src)
 b = df.count()
 df2 = (df.dropDuplicates([{keys}])
@@ -100,11 +100,11 @@ if silver_ok:
 from pyspark.sql import functions as F
 from pyspark.sql import Window
 
-CAT = "asb_dev"
+CAT = "dev_retail_modelling"
 
-hl = spark.table(f"{CAT}.retail_silver.hlacctbase_final")
-gdw = spark.table(f"{CAT}.retail_silver.hl_gdwextract_199607_202408")
-defaults = spark.table(f"{CAT}.retail_silver.add_default_flag_202408")
+hl = spark.table(f"{CAT}.silver.hlacctbase_final")
+gdw = spark.table(f"{CAT}.silver.hl_gdwextract_199607_202408")
+defaults = spark.table(f"{CAT}.silver.add_default_flag_202408")
 
 print(f"HL: {hl.count()}, GDW: {gdw.count()}, Defaults: {defaults.count()}")
 
@@ -121,9 +121,9 @@ gold = (hl
     .withColumn("_gold_created_at", F.current_timestamp())
     .withColumn("_product_type", F.lit("home_loans")))
 
-gold.write.format("delta").mode("overwrite").option("overwriteSchema","true").saveAsTable(f"{CAT}.retail_gold.hl_scorecard_training")
+gold.write.format("delta").mode("overwrite").option("overwriteSchema","true").saveAsTable(f"{CAT}.gold.hl_scorecard_training")
 
-g = spark.table(f"{CAT}.retail_gold.hl_scorecard_training")
+g = spark.table(f"{CAT}.gold.hl_scorecard_training")
 total = g.count()
 bad = g.filter("default_flag = 1").count()
 print(f"Gold: {total} rows | Bad: {bad} ({round(bad/total*100,2)}%) | Cols: {len(g.columns)}")
@@ -144,16 +144,16 @@ nb_verify = '''# Databricks notebook source
 # COMMAND ----------
 print("=== BRONZE ===")
 for t in ["hlacctbase_final", "hl_gdwextract_199607_202408", "add_default_flag_202408"]:
-    c = spark.table(f"asb_dev.retail_bronze.{t}").count()
+    c = spark.table(f"dev_retail_modelling.bronze.{t}").count()
     print(f"  {t}: {c}")
 
 print("\\n=== SILVER ===")
 for t in ["hlacctbase_final", "hl_gdwextract_199607_202408", "add_default_flag_202408"]:
-    c = spark.table(f"asb_dev.retail_silver.{t}").count()
+    c = spark.table(f"dev_retail_modelling.silver.{t}").count()
     print(f"  {t}: {c}")
 
 print("\\n=== GOLD ===")
-g = spark.table("asb_dev.retail_gold.hl_scorecard_training")
+g = spark.table("dev_retail_modelling.gold.hl_scorecard_training")
 total = g.count()
 bad = g.filter("default_flag = 1").count()
 cols = len(g.columns)

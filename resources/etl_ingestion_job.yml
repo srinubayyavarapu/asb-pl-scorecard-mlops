@@ -60,10 +60,10 @@ resources:
               row_index: "0"
               catalog: "${var.catalog}"
               environment: "${var.environment}"
-              bronze_schema: "retail_bronze"
-              silver_schema: "retail_silver"
-              gold_schema: "retail_gold"
-              ml_schema: "retail_ml"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
           environment_key: etl_default
 
         # ── FACILITIES ───────────────────────────────────────
@@ -86,10 +86,10 @@ resources:
               row_index: "1"
               catalog: "${var.catalog}"
               environment: "${var.environment}"
-              bronze_schema: "retail_bronze"
-              silver_schema: "retail_silver"
-              gold_schema: "retail_gold"
-              ml_schema: "retail_ml"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
           environment_key: etl_default
 
         # ── CREDIT_PERFORMANCE (append-only) ─────────────────
@@ -112,10 +112,10 @@ resources:
               row_index: "2"
               catalog: "${var.catalog}"
               environment: "${var.environment}"
-              bronze_schema: "retail_bronze"
-              silver_schema: "retail_silver"
-              gold_schema: "retail_gold"
-              ml_schema: "retail_ml"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
           environment_key: etl_default
 
         # ── SAS_FINAL_SCORES ─────────────────────────────────
@@ -138,10 +138,10 @@ resources:
               row_index: "3"
               catalog: "${var.catalog}"
               environment: "${var.environment}"
-              bronze_schema: "retail_bronze"
-              silver_schema: "retail_silver"
-              gold_schema: "retail_gold"
-              ml_schema: "retail_ml"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
           environment_key: etl_default
 
         # ── SILVER -> GOLD (joins all four) ──────────────────

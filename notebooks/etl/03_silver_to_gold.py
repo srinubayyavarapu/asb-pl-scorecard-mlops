@@ -17,7 +17,7 @@
 # MAGIC - **sample_flag**: Funded / NotFunded (drives reject inference downstream)
 # MAGIC - **dp3_application**: month-end of application_date (period field per walkthrough)
 # MAGIC
-# MAGIC Output: `<catalog>.retail_gold.pl_application_scorecard_data`
+# MAGIC Output: `<catalog>.gold.pl_application_scorecard_data`
 
 # COMMAND ----------
 
@@ -31,16 +31,16 @@ from datetime import datetime
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-APPLICATIONS_SILVER       = f"{catalog}.retail_silver.pl_applications_silver"
-FACILITIES_SILVER         = f"{catalog}.retail_silver.pl_facilities_silver"
-CREDIT_PERFORMANCE_SILVER = f"{catalog}.retail_silver.pl_credit_performance_silver"
-SAS_SCORES_SILVER         = f"{catalog}.retail_silver.pl_sas_final_scores_silver"
+APPLICATIONS_SILVER       = f"{catalog}.silver.pl_applications_silver"
+FACILITIES_SILVER         = f"{catalog}.silver.pl_facilities_silver"
+CREDIT_PERFORMANCE_SILVER = f"{catalog}.silver.pl_credit_performance_silver"
+SAS_SCORES_SILVER         = f"{catalog}.silver.pl_sas_final_scores_silver"
 
-GOLD_TABLE = f"{catalog}.retail_gold.pl_application_scorecard_data"
+GOLD_TABLE = f"{catalog}.gold.pl_application_scorecard_data"
 
 # Target derivation thresholds (per ASB walkthrough)
 BAD_ARREARS_THRESHOLD          = 90   # >= 90 days arrears OR hardship = Bad
@@ -51,7 +51,7 @@ print(f"Catalog: {catalog}")
 print(f"Output:  {GOLD_TABLE}")
 
 # Ensure Gold schema exists (UC does not auto-create schemas on saveAsTable)
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.retail_gold")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.gold")
 
 # COMMAND ----------
 

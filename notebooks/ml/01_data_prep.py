@@ -24,16 +24,16 @@ from datetime import datetime
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME   = "pl_application_scorecard"
+MODEL_NAME   = "application_scorecard"
 TARGET       = "target_flag"           # Good / Bad / Indeterminate / Rejected
 PRIMARY_KEY  = "application_id"
 
-SOURCE_TABLE = f"{catalog}.retail_gold.pl_application_scorecard_data"
-OUTPUT_TABLE = f"{catalog}.retail_gold.pl_scorecard_dev_data"
+SOURCE_TABLE = f"{catalog}.gold.pl_application_scorecard_data"
+OUTPUT_TABLE = f"{catalog}.gold.pl_scorecard_dev_data"
 
 # Split ratios applied to FUNDED population (Bad/Good/Indeterminate only).
 # Rejected applicants (5K) are routed to TTD only — they get inferred labels in training.

@@ -5,13 +5,13 @@
       "displayName": "Headline KPIs",
       "queryLines": [
         "SELECT\n",
-        "  (SELECT MAX(challenger_version) FROM asb_dev.retail_ml.pl_evaluation_results)                   AS latest_model_version,\n",
-        "  (SELECT COUNT(*) FROM asb_dev.retail_gold.pl_scored_output)                                     AS total_scored,\n",
-        "  (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)                            AS last_run,\n",
-        "  (SELECT COUNT(*) FROM asb_dev.retail_ml.pl_monitoring_log\n",
-        "    WHERE alert_level='critical' AND run_timestamp=(SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)) AS critical_alerts,\n",
-        "  (SELECT COUNT(*) FROM asb_dev.retail_ml.pl_monitoring_log\n",
-        "    WHERE alert_level='warning' AND run_timestamp=(SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)) AS warning_alerts\n"
+        "  (SELECT MAX(challenger_version) FROM dev_retail_modelling.pl_scorecard.evaluation_results)                   AS latest_model_version,\n",
+        "  (SELECT COUNT(*) FROM dev_retail_modelling.pl_scorecard.scored_output)                                     AS total_scored,\n",
+        "  (SELECT MAX(run_timestamp) FROM dev_retail_modelling.pl_scorecard.monitoring_log)                            AS last_run,\n",
+        "  (SELECT COUNT(*) FROM dev_retail_modelling.pl_scorecard.monitoring_log\n",
+        "    WHERE alert_level='critical' AND run_timestamp=(SELECT MAX(run_timestamp) FROM dev_retail_modelling.pl_scorecard.monitoring_log)) AS critical_alerts,\n",
+        "  (SELECT COUNT(*) FROM dev_retail_modelling.pl_scorecard.monitoring_log\n",
+        "    WHERE alert_level='warning' AND run_timestamp=(SELECT MAX(run_timestamp) FROM dev_retail_modelling.pl_scorecard.monitoring_log)) AS warning_alerts\n"
       ]
     },
     {
@@ -19,9 +19,9 @@
       "displayName": "Performance metrics",
       "queryLines": [
         "SELECT population, metric, value\n",
-        "FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "FROM dev_retail_modelling.pl_scorecard.monitoring_log\n",
         "WHERE metric IN ('gini','auc','ks')\n",
-        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)\n",
+        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM dev_retail_modelling.pl_scorecard.monitoring_log)\n",
         "ORDER BY metric, population\n"
       ]
     },
@@ -30,9 +30,9 @@
       "displayName": "PSI drift",
       "queryLines": [
         "SELECT population, ROUND(value, 4) AS psi, alert_level\n",
-        "FROM asb_dev.retail_ml.pl_monitoring_log\n",
+        "FROM dev_retail_modelling.pl_scorecard.monitoring_log\n",
         "WHERE metric = 'psi_p_good'\n",
-        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM asb_dev.retail_ml.pl_monitoring_log)\n"
+        "  AND run_timestamp = (SELECT MAX(run_timestamp) FROM dev_retail_modelling.pl_scorecard.monitoring_log)\n"
       ]
     },
     {
@@ -40,7 +40,7 @@
       "displayName": "Risk grade distribution",
       "queryLines": [
         "SELECT risk_grade, COUNT(*) AS n, ROUND(AVG(final_p_good), 4) AS avg_p_good\n",
-        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "FROM dev_retail_modelling.pl_scorecard.scored_output\n",
         "GROUP BY risk_grade\n",
         "ORDER BY risk_grade\n"
       ]
@@ -52,7 +52,7 @@
         "SELECT goodbadflag_inferred AS predicted,\n",
         "       COALESCE(_observed_label, 'NULL (no ground truth)') AS observed,\n",
         "       COUNT(*) AS n\n",
-        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "FROM dev_retail_modelling.pl_scorecard.scored_output\n",
         "GROUP BY goodbadflag_inferred, _observed_label\n",
         "ORDER BY observed, predicted\n"
       ]
@@ -62,7 +62,7 @@
       "displayName": "Credit score distribution",
       "queryLines": [
         "SELECT FLOOR(credit_score/50)*50 AS score_bucket, COUNT(*) AS n, sample_flag\n",
-        "FROM asb_dev.retail_gold.pl_scored_output\n",
+        "FROM dev_retail_modelling.pl_scorecard.scored_output\n",
         "GROUP BY FLOOR(credit_score/50)*50, sample_flag\n",
         "ORDER BY score_bucket\n"
       ]
@@ -74,7 +74,7 @@
         "SELECT challenger_version AS version,\n",
         "       eval_rows, gini, weighted_gini_by_dp3, weighted_gini_by_pop,\n",
         "       sas_correlation, comparison_result, evaluation_timestamp\n",
-        "FROM asb_dev.retail_ml.pl_evaluation_results\n",
+        "FROM dev_retail_modelling.pl_scorecard.evaluation_results\n",
         "ORDER BY challenger_version DESC\n"
       ]
     },
@@ -83,7 +83,7 @@
       "displayName": "Target flag distribution",
       "queryLines": [
         "SELECT target_flag, sample_flag, COUNT(*) AS n\n",
-        "FROM asb_dev.retail_gold.pl_application_scorecard_data\n",
+        "FROM dev_retail_modelling.gold.pl_application_scorecard_data\n",
         "GROUP BY target_flag, sample_flag\n",
         "ORDER BY target_flag\n"
       ]

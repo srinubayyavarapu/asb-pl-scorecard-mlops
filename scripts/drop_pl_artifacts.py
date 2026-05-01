@@ -34,19 +34,19 @@ def sql(stmt, profile, warehouse_id):
 
 
 PL_TABLES = {
-    "retail_bronze":  ["pl_applications_bronze", "pl_facilities_bronze",
+    "bronze":  ["pl_applications_bronze", "pl_facilities_bronze",
                        "pl_credit_performance_bronze", "pl_sas_final_scores_bronze",
                        "_etl_control"],
-    "retail_silver":  ["pl_applications_silver", "pl_facilities_silver",
+    "silver":  ["pl_applications_silver", "pl_facilities_silver",
                        "pl_credit_performance_silver", "pl_sas_final_scores_silver"],
-    "retail_gold":    ["pl_application_scorecard_data", "pl_scorecard_dev_data",
+    "gold":    ["pl_application_scorecard_data", "pl_scorecard_dev_data",
                        "pl_woe_iv", "pl_scored_output"],
-    "retail_ml":      ["pl_evaluation_results", "pl_feature_store",
+    "pl_scorecard":      ["pl_evaluation_results", "pl_feature_store",
                        "pl_monitoring_baseline", "pl_monitoring_log"],
 }
 
 # Only DEV has a working SQL warehouse — for stg/prd we'll skip cleanup (probably no data anyway)
-catalog = "asb_dev"
+catalog = "dev_retail_modelling"
 profile = "DEV"
 wh = WAREHOUSE_BY_PROFILE[profile]
 print(f"\n{'='*60}\nCleaning {catalog} (profile {profile})\n{'='*60}")

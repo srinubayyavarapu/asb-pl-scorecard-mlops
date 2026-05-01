@@ -36,16 +36,16 @@ import time
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME    = "pl_application_scorecard"
+MODEL_NAME    = "application_scorecard"
 TARGET        = "target_flag"
 
-FEATURE_TABLE = f"{catalog}.retail_ml.pl_feature_store"
-UC_MODEL      = f"{catalog}.retail_ml.pl_application_scorecard"
-EXPERIMENT    = "/Shared/ml/pl_application_scorecard_experiments"
+FEATURE_TABLE = f"{catalog}.pl_scorecard.feature_store"
+UC_MODEL      = f"{catalog}.pl_scorecard.application_scorecard"
+EXPERIMENT    = "/Shared/ml/pl_scorecard/application_scorecard"
 
 # Reject inference: parcelling-style augmentation.
 # For each Rejected applicant, duplicate as 2 rows: one labelled Good (weighted 1-p_bad),

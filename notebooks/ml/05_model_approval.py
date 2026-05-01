@@ -23,7 +23,7 @@ import mlflow
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 dbutils.widgets.text("environment", "dev", "Environment (dev/stg/prod)")
 dbutils.widgets.text("model_name", "", "UC model (auto-set by Deployment Jobs)")
 dbutils.widgets.text("model_version", "", "Version (auto-set by Deployment Jobs)")
@@ -32,8 +32,8 @@ catalog = dbutils.widgets.get("catalog").strip()
 environment = dbutils.widgets.get("environment").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME = "pl_application_scorecard"
-UC_MODEL_DEFAULT = f"{catalog}.retail_ml.pl_application_scorecard"
+MODEL_NAME = "application_scorecard"
+UC_MODEL_DEFAULT = f"{catalog}.pl_scorecard.application_scorecard"
 UC_MODEL   = dbutils.widgets.get("model_name").strip() or UC_MODEL_DEFAULT
 
 DEPLOY_JOB_VERSION = dbutils.widgets.get("model_version").strip()

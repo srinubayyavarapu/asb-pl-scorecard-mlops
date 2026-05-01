@@ -11,14 +11,14 @@ Snowflake (ASB_ANALYTICS)
     |
     | Lakehouse Federation / JDBC
     v
-Bronze (retail_bronze)        -- raw data + ingestion metadata
+Bronze (bronze)        -- raw data + ingestion metadata
     |
     | 02_bronze_to_silver.py
     v
-Silver (retail_silver)        -- cleansed, SCD Type 2 tracked
+Silver (silver)        -- cleansed, SCD Type 2 tracked
     |
     v
-Gold   (retail_gold)          -- business-ready, ML-ready
+Gold   (gold)          -- business-ready, ML-ready
 ```
 
 ---
@@ -58,13 +58,13 @@ databricks bundle deploy --target dev
 ```
 
 - **Config:** `databricks.yml`
-- **Targets:** `dev` (asb_dev), `stg` (asb_stg), `prod` (asb_prod)
+- **Targets:** `dev` (dev_retail_modelling), `stg` (stg_retail_modelling), `prod` (prod_retail_modelling)
 
 ### 0.5 Initialize Unity Catalog
 
 - **Where:** Databricks workspace
 - **Notebook:** `notebooks/setup/00_init_workspace.py`
-- **Creates:** Catalog + schemas (`retail_bronze`, `retail_silver`, `retail_gold`, `retail_ml`)
+- **Creates:** Catalog + schemas (`bronze`, `silver`, `gold`, `pl_scorecard`)
 
 ---
 
@@ -81,7 +81,7 @@ databricks bundle deploy --target dev
 | 1.4 | **Historical load:** reads full table from Snowflake foreign catalog, overwrites Bronze |
 | 1.5 | **Incremental load:** reads only rows where `watermark_column > last ingested value`, appends to Bronze |
 | 1.6 | Adds metadata columns: `_ingested_at`, `_source_system`, `_source_table`, `_load_type`, `_ingestion_id` |
-| 1.7 | Writes to Bronze (e.g., `asb_dev.retail_bronze.hlacctbase_final`) |
+| 1.7 | Writes to Bronze (e.g., `dev_retail_modelling.bronze.hlacctbase_final`) |
 | 1.8 | Validates row count match and metadata column presence |
 | 1.9 | Returns `SUCCESS\|table_name\|row_count\|load_type\|elapsed` |
 
@@ -297,8 +297,8 @@ Run notebooks individually in Databricks workspace, passing `table_name` as widg
 | `primary_key` | Comma-separated key columns (drives dedup + SCD2 merge) |
 | `watermark_column` | Column for incremental filtering |
 | `target_catalog` | Unity Catalog name (empty = default from DAB) |
-| `target_bronze_schema` | Bronze schema (default: `retail_bronze`) |
-| `target_silver_schema` | Silver schema (default: `retail_silver`) |
+| `target_bronze_schema` | Bronze schema (default: `bronze`) |
+| `target_silver_schema` | Silver schema (default: `silver`) |
 | `target_bronze_table` | Bronze table name |
 | `target_silver_table` | Silver table name |
 | `description` | Human-readable description |
@@ -330,16 +330,16 @@ Contains Snowflake connection details (host, user, password via Databricks secre
 
 ```sql
 -- Bronze row count
-SELECT COUNT(*) FROM asb_dev.retail_bronze.hlacctbase_final;
+SELECT COUNT(*) FROM dev_retail_modelling.bronze.hlacctbase_final;
 
 -- Silver SCD2 summary
 SELECT _is_current, COUNT(*) AS rows
-FROM asb_dev.retail_silver.hlacctbase_final
+FROM dev_retail_modelling.silver.hlacctbase_final
 GROUP BY _is_current;
 
 -- Change history for a specific key
 SELECT account_key, _is_current, _effective_from, _effective_to, _row_hash
-FROM asb_dev.retail_silver.hlacctbase_final
+FROM dev_retail_modelling.silver.hlacctbase_final
 WHERE account_key = '<some_key>'
 ORDER BY _effective_from;
 
@@ -347,7 +347,7 @@ ORDER BY _effective_from;
 SELECT
   COUNT(*) AS total_current,
   COUNT(account_key) AS non_null_key
-FROM asb_dev.retail_silver.hlacctbase_final
+FROM dev_retail_modelling.silver.hlacctbase_final
 WHERE _is_current = true;
 ```
 

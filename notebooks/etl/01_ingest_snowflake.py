@@ -140,10 +140,10 @@ PRIMARY_KEY = table_config.get("primary_key", "").strip() or None
 WATERMARK_COL = table_config.get("watermark_column", "").strip() or None
 
 # Target (Databricks) — bundle catalog var overrides CSV when passed
-TARGET_CATALOG = CATALOG_OVERRIDE or table_config.get("target_catalog", "").strip() or "asb_dev"
+TARGET_CATALOG = CATALOG_OVERRIDE or table_config.get("target_catalog", "").strip() or "dev_retail_modelling"
 if CATALOG_OVERRIDE:
     print(f"  Target catalog override (per-env): {CATALOG_OVERRIDE}")
-BRONZE_SCHEMA = table_config.get("target_bronze_schema", "").strip() or "retail_bronze"
+BRONZE_SCHEMA = table_config.get("target_bronze_schema", "").strip() or "bronze"
 BRONZE_TABLE = table_config["target_bronze_table"]
 
 # Fully qualified paths

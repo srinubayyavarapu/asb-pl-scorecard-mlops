@@ -12,7 +12,7 @@ variables:
     default: dev
   catalog:
     description: "Unity Catalog — one per environment"
-    default: asb_dev
+    default: dev_retail_modelling
   snowflake_database:
     description: "Snowflake source database for this environment (one DB per env, UC best practice)"
     default: "DP_CREDITMANAGEMENT_DEV"
@@ -50,7 +50,7 @@ targets:
     mode: development
     variables:
       environment: dev
-      catalog: asb_dev
+      catalog: dev_retail_modelling
       snowflake_database: DP_CREDITMANAGEMENT_DEV
     workspace:
       host: https://adb-7405618935161265.5.azuredatabricks.net
@@ -58,7 +58,7 @@ targets:
   stg:
     variables:
       environment: stg
-      catalog: asb_stg
+      catalog: stg_retail_modelling
       snowflake_database: DP_CREDITMANAGEMENT_STG
     workspace:
       host: https://adb-7405610706859452.12.azuredatabricks.net
@@ -66,7 +66,7 @@ targets:
   prod:
     variables:
       environment: prod
-      catalog: asb_prd
+      catalog: prod_retail_modelling
       snowflake_database: DP_CREDITMANAGEMENT_PRD
     workspace:
       host: https://adb-7405614555582503.3.azuredatabricks.net

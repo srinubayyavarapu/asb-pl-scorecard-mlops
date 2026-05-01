@@ -174,8 +174,8 @@ scd2_col      = row["orderby_col"]   if pd.notna(row.get("orderby_col"))   else 
 # Build fully qualified table paths.
 # Catalog ALWAYS comes from the env widget (bundle passes per-target ${var.catalog}) —
 # CSV's target_catalog column is per-env wrong by design and only used as a hard fallback.
-# Schemas may be CSV-overridden since they're env-stable (retail_bronze etc.).
-catalog       = env["catalog"] or (row["target_catalog"] if pd.notna(row.get("target_catalog")) else "asb_dev")
+# Schemas may be CSV-overridden since they're env-stable (bronze etc.).
+catalog       = env["catalog"] or (row["target_catalog"] if pd.notna(row.get("target_catalog")) else "dev_retail_modelling")
 bronze_schema = row["target_bronze_schema"] if pd.notna(row.get("target_bronze_schema")) else env["bronze_schema"]
 silver_schema = row["target_silver_schema"] if pd.notna(row.get("target_silver_schema")) else env["silver_schema"]
 

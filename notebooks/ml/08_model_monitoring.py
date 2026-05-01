@@ -29,18 +29,18 @@ import pandas as pd
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME       = "pl_application_scorecard"
+MODEL_NAME       = "application_scorecard"
 TARGET           = "target_flag"
 
-SCORED_TABLE     = f"{catalog}.retail_gold.pl_scored_output"
-MONITORING_TABLE = f"{catalog}.retail_ml.pl_monitoring_log"
-BASELINE_TABLE   = f"{catalog}.retail_ml.pl_monitoring_baseline"
+SCORED_TABLE     = f"{catalog}.pl_scorecard.scored_output"
+MONITORING_TABLE = f"{catalog}.pl_scorecard.monitoring_log"
+BASELINE_TABLE   = f"{catalog}.pl_scorecard.pl_monitoring_baseline"
 
-# Derive environment from catalog (asb_dev -> dev, asb_stg -> stg, asb_prd -> prd)
+# Derive environment from catalog (dev_retail_modelling -> dev, stg_retail_modelling -> stg, prod_retail_modelling -> prd)
 env = catalog.replace("asb_", "")
 TRAINING_JOB = f"asb-ml-pl-training-{env}"
 
@@ -79,7 +79,7 @@ except Exception:
     w.quality_monitors.create(
         table_name=SCORED_TABLE,
         assets_dir=f"/Shared/ml/monitoring/{MODEL_NAME}",
-        output_schema_name=f"{catalog}.retail_ml",
+        output_schema_name=f"{catalog}.pl_scorecard",
         inference_log=MonitorInferenceLog(
             problem_type=MonitorInferenceLogProblemType.PROBLEM_TYPE_CLASSIFICATION,
             prediction_col="goodbadflag_inferred",

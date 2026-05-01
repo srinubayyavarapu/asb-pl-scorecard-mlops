@@ -11,7 +11,7 @@ mlflow.set_registry_uri("databricks-uc")
 
 client = MlflowClient()
 
-UC_MODEL = "asb_dev.retail_ml.pl_application_scorecard"
+UC_MODEL = "dev_retail_modelling.pl_scorecard.application_scorecard"
 
 print("=" * 64)
 print("UC Model: " + UC_MODEL)
