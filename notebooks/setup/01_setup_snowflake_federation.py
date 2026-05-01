@@ -81,9 +81,9 @@ except Exception as e:
 
 # COMMAND ----------
 
-spark.sql("CREATE SCHEMA IF NOT EXISTS dev.retail_bronze COMMENT 'Bronze layer - raw data from Snowflake'")
-spark.sql("CREATE SCHEMA IF NOT EXISTS dev.retail_silver COMMENT 'Silver layer - cleansed and conformed data'")
-spark.sql("CREATE SCHEMA IF NOT EXISTS dev.retail_gold COMMENT 'Gold layer - business-ready aggregates'")
+spark.sql("CREATE SCHEMA IF NOT EXISTS dev.bronze COMMENT 'Bronze layer - raw data from Snowflake'")
+spark.sql("CREATE SCHEMA IF NOT EXISTS dev.silver COMMENT 'Silver layer - cleansed and conformed data'")
+spark.sql("CREATE SCHEMA IF NOT EXISTS dev.gold COMMENT 'Gold layer - business-ready aggregates'")
 
 print("Target schemas created in dev catalog")
 

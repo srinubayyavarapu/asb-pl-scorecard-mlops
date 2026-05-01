@@ -24,17 +24,17 @@ import numpy as np
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME    = "pl_application_scorecard"
+MODEL_NAME    = "application_scorecard"
 TARGET        = "target_flag"
 PRIMARY_KEY   = "application_id"
 
-INPUT_TABLE   = f"{catalog}.retail_gold.pl_scorecard_dev_data"
-WOE_TABLE     = f"{catalog}.retail_gold.pl_woe_iv"
-FEATURE_TABLE = f"{catalog}.retail_ml.pl_feature_store"
+INPUT_TABLE   = f"{catalog}.gold.pl_scorecard_dev_data"
+WOE_TABLE     = f"{catalog}.pl_scorecard.woe_iv"
+FEATURE_TABLE = f"{catalog}.pl_scorecard.feature_store"
 
 # Continuous variables — banded via qcut (max 10 bins).
 CONTINUOUS = [
@@ -76,7 +76,7 @@ print(f"Categorical features: {len(CATEGORICAL)}")
 
 # COMMAND ----------
 
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.retail_ml")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.pl_scorecard")
 
 start_time = datetime.now()
 

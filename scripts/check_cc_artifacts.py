@@ -39,15 +39,15 @@ def sql(stmt):
     return d.get("result", {}).get("data_array", []) or []
 
 
-print("\n[1] Schemas in asb_dev:")
-rows = sql("SHOW SCHEMAS IN asb_dev")
+print("\n[1] Schemas in dev_retail_modelling:")
+rows = sql("SHOW SCHEMAS IN dev_retail_modelling")
 for r in rows:
     print(f"  {r[0]}")
 
-for sch in ("retail_ml", "retail_gold", "retail_bronze", "retail_silver"):
-    print(f"\n[Tables in asb_dev.{sch}]")
+for sch in ("pl_scorecard", "gold", "bronze", "silver"):
+    print(f"\n[Tables in dev_retail_modelling.{sch}]")
     try:
-        rows = sql(f"SHOW TABLES IN asb_dev.{sch}")
+        rows = sql(f"SHOW TABLES IN dev_retail_modelling.{sch}")
         if not rows:
             print("  (empty)")
         for r in rows:

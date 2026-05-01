@@ -60,11 +60,11 @@ def get_env_config():
         # Default values for local/interactive development
         env_config = {
             "environment": "dev",
-            "catalog": "asb_dev",
-            "bronze_schema": "retail_bronze",
-            "silver_schema": "retail_silver",
-            "gold_schema": "retail_gold",
-            "ml_schema": "retail_ml",
+            "catalog": "dev_retail_modelling",
+            "bronze_schema": "bronze",
+            "silver_schema": "silver",
+            "gold_schema": "gold",
+            "ml_schema": "pl_scorecard",
         }
 
     return env_config
@@ -81,11 +81,11 @@ def get_table_path(env_config, layer, table_name):
         table_name: Name of the table
 
     Returns:
-        str: Fully qualified path like "asb_dev.retail_silver.customer_data"
+        str: Fully qualified path like "dev_retail_modelling.silver.customer_data"
 
     Example:
         path = get_table_path(env, "silver", "customer_data")
-        # Returns: "asb_dev.retail_silver.customer_data"
+        # Returns: "dev_retail_modelling.silver.customer_data"
     """
     schema_key = f"{layer}_schema" if layer != "ml" else "ml_schema"
     schema = env_config[schema_key]

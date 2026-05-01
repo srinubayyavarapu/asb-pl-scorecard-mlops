@@ -28,16 +28,16 @@ import pandas as pd
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME    = "pl_application_scorecard"
+MODEL_NAME    = "application_scorecard"
 PRIMARY_KEY   = "application_id"
 
-FEATURE_TABLE = f"{catalog}.retail_ml.pl_feature_store"
-OUTPUT_TABLE  = f"{catalog}.retail_gold.pl_scored_output"
-UC_MODEL      = f"{catalog}.retail_ml.pl_application_scorecard"
+FEATURE_TABLE = f"{catalog}.pl_scorecard.feature_store"
+OUTPUT_TABLE  = f"{catalog}.pl_scorecard.scored_output"
+UC_MODEL      = f"{catalog}.pl_scorecard.application_scorecard"
 
 # Scorecard scaling: target 600 @ 50:1 odds, doubling every 20 points
 TARGET_SCORE = 600

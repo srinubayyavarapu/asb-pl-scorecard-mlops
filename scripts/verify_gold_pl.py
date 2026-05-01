@@ -61,20 +61,20 @@ def main():
     print("=" * 64)
 
     show(
-        "SELECT COUNT(*) AS rows FROM asb_dev.retail_gold.pl_application_scorecard_data",
+        "SELECT COUNT(*) AS rows FROM dev_retail_modelling.gold.pl_application_scorecard_data",
         "Row count",
     )
     show(
-        "SELECT target_flag, COUNT(*) AS n FROM asb_dev.retail_gold.pl_application_scorecard_data GROUP BY 1 ORDER BY 1",
+        "SELECT target_flag, COUNT(*) AS n FROM dev_retail_modelling.gold.pl_application_scorecard_data GROUP BY 1 ORDER BY 1",
         "Target distribution",
     )
     show(
-        "SELECT sample_flag, COUNT(*) AS n FROM asb_dev.retail_gold.pl_application_scorecard_data GROUP BY 1 ORDER BY 1",
+        "SELECT sample_flag, COUNT(*) AS n FROM dev_retail_modelling.gold.pl_application_scorecard_data GROUP BY 1 ORDER BY 1",
         "Sample flag distribution",
     )
     show(
         """SELECT target_flag, sample_flag, COUNT(*) AS n
-           FROM asb_dev.retail_gold.pl_application_scorecard_data
+           FROM dev_retail_modelling.gold.pl_application_scorecard_data
            GROUP BY 1, 2 ORDER BY 1, 2""",
         "target_flag x sample_flag",
     )
@@ -83,7 +83,7 @@ def main():
              COUNT(facility_id)         AS rows_with_facility,
              COUNT(sas_final_p_good)    AS rows_with_sas_score,
              COUNT(max_arrears_days_24mo) AS rows_with_perf_data
-           FROM asb_dev.retail_gold.pl_application_scorecard_data""",
+           FROM dev_retail_modelling.gold.pl_application_scorecard_data""",
         "Join coverage (NULLs after left joins)",
     )
 

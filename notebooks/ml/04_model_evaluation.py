@@ -27,21 +27,21 @@ import pandas as pd
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 dbutils.widgets.text("model_name", "", "UC model (auto-set by Deployment Jobs)")
 dbutils.widgets.text("model_version", "", "Version (auto-set by Deployment Jobs)")
 
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
-MODEL_NAME       = "pl_application_scorecard"
+MODEL_NAME       = "application_scorecard"
 TARGET           = "target_flag"
 
-FEATURE_TABLE    = f"{catalog}.retail_ml.pl_feature_store"
-UC_MODEL_DEFAULT = f"{catalog}.retail_ml.pl_application_scorecard"
+FEATURE_TABLE    = f"{catalog}.pl_scorecard.feature_store"
+UC_MODEL_DEFAULT = f"{catalog}.pl_scorecard.application_scorecard"
 UC_MODEL         = dbutils.widgets.get("model_name").strip() or UC_MODEL_DEFAULT
-EVAL_TABLE       = f"{catalog}.retail_ml.pl_evaluation_results"
-EXPERIMENT       = "/Shared/ml/pl_application_scorecard_experiments"
+EVAL_TABLE       = f"{catalog}.pl_scorecard.evaluation_results"
+EXPERIMENT       = "/Shared/ml/pl_scorecard/application_scorecard"
 
 DEPLOY_JOB_VERSION = dbutils.widgets.get("model_version").strip()
 

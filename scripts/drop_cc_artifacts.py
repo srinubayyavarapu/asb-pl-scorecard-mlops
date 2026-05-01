@@ -34,14 +34,14 @@ def sql(stmt):
 
 
 targets = [
-    "asb_dev.retail_ml.cc_evaluation_results",
-    "asb_dev.retail_ml.cc_feature_store",
-    "asb_dev.retail_ml.cc_monitoring_baseline",
-    "asb_dev.retail_ml.cc_monitoring_log",
-    "asb_dev.retail_gold.cc_scorecard_dev_data",
-    "asb_dev.retail_gold.cc_scored_output",
-    "asb_dev.retail_gold.cc_woe_iv",
-    "asb_dev.retail_silver.cc_customer_data",
+    "dev_retail_modelling.pl_scorecard.cc_evaluation_results",
+    "dev_retail_modelling.pl_scorecard.cc_feature_store",
+    "dev_retail_modelling.pl_scorecard.cc_monitoring_baseline",
+    "dev_retail_modelling.pl_scorecard.cc_monitoring_log",
+    "dev_retail_modelling.gold.cc_scorecard_dev_data",
+    "dev_retail_modelling.gold.cc_scored_output",
+    "dev_retail_modelling.gold.cc_woe_iv",
+    "dev_retail_modelling.silver.cc_customer_data",
 ]
 
 for tbl in targets:
@@ -51,6 +51,6 @@ for tbl in targets:
 
 # Drop the UC model registry entry if present
 print()
-state, d = sql("DROP MODEL IF EXISTS asb_dev.retail_ml.cc_behaviour_scorecard")
+state, d = sql("DROP MODEL IF EXISTS dev_retail_modelling.pl_scorecard.cc_behaviour_scorecard")
 err = d.get("status", {}).get("error", {}).get("message", "") if state != "SUCCEEDED" else ""
-print(f"  {state:<10}  DROP MODEL asb_dev.retail_ml.cc_behaviour_scorecard{(' — ' + err) if err else ''}")
+print(f"  {state:<10}  DROP MODEL dev_retail_modelling.pl_scorecard.cc_behaviour_scorecard{(' — ' + err) if err else ''}")

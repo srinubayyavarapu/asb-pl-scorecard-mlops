@@ -9,7 +9,7 @@
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
-dbutils.widgets.text("catalog", "asb_dev", "Unity Catalog")
+dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
@@ -106,7 +106,7 @@ df = spark.createDataFrame(data, schema)
 # COMMAND ----------
 
 # Write to Silver
-silver_table = f"{catalog}.retail_silver.cc_customer_data"
+silver_table = f"{catalog}.silver.cc_customer_data"
 df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(silver_table)
 
 total = df.count()

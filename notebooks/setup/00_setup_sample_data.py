@@ -9,10 +9,10 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import *
 import random, numpy as np
 
-catalog = "asb_dev"
+catalog = "dev_retail_modelling"
 spark.sql(f"USE CATALOG {catalog}")
-spark.sql("CREATE SCHEMA IF NOT EXISTS retail_gold")
-spark.sql("CREATE SCHEMA IF NOT EXISTS retail_ml")
+spark.sql("CREATE SCHEMA IF NOT EXISTS gold")
+spark.sql("CREATE SCHEMA IF NOT EXISTS pl_scorecard")
 
 random.seed(42)
 np.random.seed(42)
@@ -47,7 +47,7 @@ schema = StructType([
 ])
 
 df = spark.createDataFrame(data, schema).withColumn("observation_date", F.to_date("observation_date"))
-sample_table = f"{catalog}.retail_silver.hl_sample_data"
+sample_table = f"{catalog}.silver.hl_sample_data"
 df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(sample_table)
 
 total = df.count()

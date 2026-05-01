@@ -8,9 +8,9 @@
 # MAGIC
 # MAGIC | Catalog | Write Access | Read Access |
 # MAGIC |---------|-------------|-------------|
-# MAGIC | `asb_dev` | Data scientists, service principals | All dev users |
-# MAGIC | `asb_stg` | CI/CD service principal only | Dev users (for debugging test failures) |
-# MAGIC | `asb_prod` | CD service principal + admins only | Dev users (read-only for debugging & model comparison) |
+# MAGIC | `dev_retail_modelling` | Data scientists, service principals | All dev users |
+# MAGIC | `stg_retail_modelling` | CI/CD service principal only | Dev users (for debugging test failures) |
+# MAGIC | `prod_retail_modelling` | CD service principal + admins only | Dev users (read-only for debugging & model comparison) |
 # MAGIC
 # MAGIC ## What This Enables
 # MAGIC
@@ -22,7 +22,7 @@
 # MAGIC
 # MAGIC ## Prerequisites
 # MAGIC - Must be run by a UC admin or account admin
-# MAGIC - All three catalogs (asb_dev, asb_stg, asb_prod) must exist
+# MAGIC - All three catalogs (dev_retail_modelling, stg_retail_modelling, prod_retail_modelling) must exist
 # MAGIC - Service principal for CI/CD must exist
 
 # COMMAND ----------
@@ -32,9 +32,9 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("dev_catalog", "asb_dev", "Development catalog")
-dbutils.widgets.text("stg_catalog", "asb_stg", "Staging catalog")
-dbutils.widgets.text("prod_catalog", "asb_prod", "Production catalog")
+dbutils.widgets.text("dev_catalog", "dev_retail_modelling", "Development catalog")
+dbutils.widgets.text("stg_catalog", "stg_retail_modelling", "Staging catalog")
+dbutils.widgets.text("prod_catalog", "prod_retail_modelling", "Production catalog")
 dbutils.widgets.text("cicd_sp", "", "CI/CD Service Principal (application ID or name)")
 dbutils.widgets.text("ds_group", "data_scientists", "Data scientists group name")
 
@@ -73,7 +73,7 @@ for cat in [dev_catalog, stg_catalog, prod_catalog]:
 
 # COMMAND ----------
 
-schemas = ["retail_bronze", "retail_silver", "retail_gold", "retail_ml"]
+schemas = ["bronze", "silver", "gold", "pl_scorecard"]
 
 for cat in [dev_catalog, stg_catalog, prod_catalog]:
     for schema in schemas:
@@ -213,9 +213,9 @@ Environment Isolation:
   {prod_catalog} — DS: read-only, SP: full (CD)
 
 What data scientists can do from dev workspace:
-  - Read prod tables: spark.table("{prod_catalog}.retail_gold.<table>")
-  - Load prod models:  mlflow.sklearn.load_model("models:/{prod_catalog}.retail_ml.<model>@Champion")
-  - Query monitoring:  spark.table("{prod_catalog}.retail_ml.<model>_monitoring_log")
+  - Read prod tables: spark.table("{prod_catalog}.gold.<table>")
+  - Load prod models:  mlflow.sklearn.load_model("models:/{prod_catalog}.pl_scorecard.<model>@Champion")
+  - Query monitoring:  spark.table("{prod_catalog}.pl_scorecard.<model>_monitoring_log")
   - Compare models:    Load @Champion from prod, compare vs dev @Challenger
 
 What data scientists CANNOT do from dev:
