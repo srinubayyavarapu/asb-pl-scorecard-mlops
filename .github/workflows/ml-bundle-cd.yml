@@ -1,0 +1,92 @@
+# ============================================================
+# ASB PL Application Scorecard - CD Workflow (Production)
+# ============================================================
+# Triggers on push to `release`.
+#   1. Validate bundle for prod
+#   2. Deploy bundle (ETL + ML job definitions) to prod
+#
+# Production jobs run on their own schedules:
+#   - ETL:         monthly  (drives bronze refresh from Snowflake)
+#   - Training:    1st of each month
+#   - Deployment:  triggered by MLflow Deployment Jobs on new model version
+#                  (requires `approval=approved` UC tag - APRA gate)
+#   - Inference:   weekly  (Monday)
+#
+# GitHub Environment: `production`
+#   Secrets expected on the production environment:
+#     DATABRICKS_HOST   = https://adb-7405614555582503.3.azuredatabricks.net
+#     DATABRICKS_TOKEN  = (CD service principal token preferred over PAT)
+#
+#   Recommended environment protection rules:
+#     - Required reviewers: 1+ designated approver(s)
+#     - Deployment branches: only `release`
+# ============================================================
+
+name: ML CD - Deploy to Production
+
+on:
+  push:
+    branches:
+      - release
+    paths:
+      - 'notebooks/ml/**'
+      - 'notebooks/etl/**'
+      - 'notebooks/utils/**'
+      - 'resources/ml_*.yml'
+      - 'resources/etl_*.yml'
+      - 'configs/ingestion/**'
+      - 'databricks.yml'
+      - '.github/workflows/ml-bundle-cd.yml'
+
+  workflow_dispatch: {}
+
+concurrency:
+  group: ml-cd-production
+  cancel-in-progress: false
+
+env:
+  DBX_CLI_VERSION: '0.298.0'
+
+jobs:
+
+  deploy-prod:
+    name: Production Deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production    # <-- gate on environment review + scoped secrets
+    env:
+      DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI v${{ env.DBX_CLI_VERSION }}
+        run: |
+          set -e
+          curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+          unzip -o dbx.zip -d /tmp/dbx
+          sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+          databricks --version
+
+      - name: Validate bundle for prod
+        run: databricks bundle validate -t prod
+
+      - name: Deploy bundle to prod (ETL + ML job definitions)
+        run: databricks bundle deploy -t prod
+
+      - name: Deployment summary
+        run: |
+          echo "=========================================="
+          echo "Production deployment complete"
+          echo "=========================================="
+          echo ""
+          echo "Job definitions deployed to prod workspace:"
+          echo "  - etl_pl_application_pipeline   (Snowflake -> Bronze -> Silver -> Gold)"
+          echo "  - ml_pl_training                (registers @Challenger)"
+          echo "  - ml_pl_deployment              (gated on approval=approved UC tag)"
+          echo "  - ml_pl_inference               (uses @Champion)"
+          echo ""
+          echo "Jobs execute on their own schedules. Model promotion"
+          echo "requires manual UC tag approval per APRA / RBNZ validation."

@@ -1,0 +1,124 @@
+# ============================================================
+# ASB PL Application Scorecard - CI Workflow (Staging)
+# ============================================================
+# Triggers on push to `main`.
+#   1. Validate bundle for stg
+#   2. Deploy bundle to stg
+#   3. Run ETL pipeline (Snowflake -> Bronze -> Silver -> Gold)
+#   4. Run the 3 ML jobs end-to-end on stg (training, deployment, inference)
+#   5. Auto-create PR main -> release
+#
+# GitHub Environment: `staging`
+#   Secrets expected on the staging environment:
+#     DATABRICKS_HOST   = https://adb-7405610706859452.12.azuredatabricks.net
+#     DATABRICKS_TOKEN  = (PAT or service-principal token, marked secret)
+# ============================================================
+
+name: ML CI - Deploy & Test on Staging
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'notebooks/ml/**'
+      - 'notebooks/etl/**'
+      - 'notebooks/utils/**'
+      - 'resources/ml_*.yml'
+      - 'resources/etl_*.yml'
+      - 'configs/ingestion/**'
+      - 'databricks.yml'
+      - '.github/workflows/ml-tests-ci.yml'
+
+  workflow_dispatch: {}
+
+concurrency:
+  group: ml-ci-staging
+  cancel-in-progress: false
+
+env:
+  DBX_CLI_VERSION: '0.298.0'
+
+jobs:
+
+  integration-tests:
+    name: Deploy + Run on Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    env:
+      DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI v${{ env.DBX_CLI_VERSION }}
+        run: |
+          set -e
+          curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+          unzip -o dbx.zip -d /tmp/dbx
+          sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+          databricks --version
+
+      - name: Validate bundle for stg
+        run: databricks bundle validate -t stg
+
+      - name: Deploy bundle to stg
+        run: databricks bundle deploy -t stg
+
+      - name: Run ETL pipeline on stg
+        run: |
+          set -e
+          echo "=== Running: etl_pl_application_pipeline (Snowflake -> Bronze -> Silver -> Gold) ==="
+          databricks bundle run etl_pl_application_pipeline -t stg
+          echo "ETL pipeline complete on stg"
+
+      - name: Run PL ML pipelines on stg (training -> deployment -> inference)
+        run: |
+          set -e
+          for job in ml_pl_training ml_pl_deployment ml_pl_inference; do
+            echo "=== Running: $job ==="
+            databricks bundle run "$job" -t stg
+          done
+          echo "All 3 PL ML pipelines passed on stg"
+
+  create-release-pr:
+    name: Auto-create PR main -> release
+    needs: integration-tests
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open PR main -> release (skip if one is already open)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          existing=$(gh pr list --base release --head main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open between main and release. Nothing to do."
+            exit 0
+          fi
+          gh pr create \
+            --base release \
+            --head main \
+            --title "Release: Deploy to Production (CI passed - run #${{ github.run_number }})" \
+            --body "Auto-created by CI after staging integration tests passed.
+
+          Build:  ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+
+          Merging this PR triggers the CD workflow which deploys job
+          definitions to the prod workspace. Production model promotion
+          still requires a manual UC tag (\`approval=approved\`) per
+          APRA / RBNZ separation of duties."
