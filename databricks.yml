@@ -41,7 +41,6 @@ sync:
     # Operational scripts (run locally, not in workspace)
     - scripts/**
     # CI/CD and developer tooling
-    - .azure-pipelines/**
     - .github/**
     - .claude/**
     - .vscode/**
