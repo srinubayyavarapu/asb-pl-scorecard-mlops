@@ -9,7 +9,7 @@
 # Receives `model_name` and `model_version` from the platform.
 #
 # Manual trigger:
-#   databricks bundle run ml_pl_deployment --target dev
+#   databricks bundle run ml_pl_deployment --target stg
 # ============================================================
 
 resources:

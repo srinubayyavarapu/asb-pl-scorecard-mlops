@@ -14,7 +14,7 @@
 #
 # GitHub Environment: `production`
 #   Secrets expected on the production environment:
-#     DATABRICKS_HOST   = https://adb-7405614555582503.3.azuredatabricks.net
+#     DATABRICKS_HOST   = https://adb-7405609196403590.10.azuredatabricks.net
 #     DATABRICKS_TOKEN  = (CD service principal token preferred over PAT)
 #
 #   Recommended environment protection rules:

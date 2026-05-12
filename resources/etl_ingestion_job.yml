@@ -1,15 +1,20 @@
 # ============================================================
-# ETL Pipeline: Snowflake -> Bronze -> Silver -> Gold
+# ETL Pipeline: Snowflake -> Bronze -> Silver -> Gold (JDBC only)
 # ASB PL Application Scorecard demo
 # ============================================================
-# Single orchestrating job. 4 source tables ingest in parallel,
-# each runs Bronze -> Silver, then a single Silver -> Gold join.
+# Single orchestrating job. 9 source tables across 2 Snowflake DBs
+# ingest in parallel, each runs Bronze -> Silver, then a single
+# Silver -> Gold join.
 #
-# Source: DP_CREDITMANAGEMENT.MART (Snowflake, JDBC)
-# Inventory: configs/ingestion/master_table_inventory.csv (4 rows)
+# Source: DP_CreditApplication.MART (5 tables — origination)
+#         DP_CreditManagement.MART (4 tables — performance)
+# Inventory: configs/ingestion/master_table_inventory.csv (9 rows)
+#
+# Each row's source DB / schema / table comes from the CSV — the job
+# does not pass snowflake_database (rows target different DBs).
 #
 # Usage:
-#   databricks bundle run etl_pl_application_pipeline --target dev
+#   databricks bundle run etl_pl_application_pipeline --target stg
 # ============================================================
 
 resources:
@@ -17,7 +22,7 @@ resources:
 
     etl_pl_application_pipeline:
       name: "asb-etl-pl-application-pipeline-${var.environment}"
-      description: "PL Application — Snowflake to Gold (Bronze, Silver SCD2, Gold join)"
+      description: "PL Application — Snowflake to Gold (9 tables, JDBC, SCD2 + append-only)"
       tags:
         product: "personal_loan"
         pipeline: "etl"
@@ -28,32 +33,33 @@ resources:
           default: "${var.catalog}"
         - name: environment
           default: "${var.environment}"
-        - name: snowflake_database
-          default: "${var.snowflake_database}"
         - name: force_full_load
           default: "N"
 
       # ── Inventory rows in master_table_inventory.csv ──
-      # 0 = APPLICATIONS         (SCD2)
-      # 1 = FACILITIES           (SCD2)
-      # 2 = CREDIT_PERFORMANCE   (append-only)
-      # 3 = SAS_FINAL_SCORES     (SCD2)
+      # 0 = DIM_SMApplicationRequest          (SCD2,  DP_CreditApplication)
+      # 1 = DIM_SMOnyxApplication             (SCD2,  DP_CreditApplication)
+      # 2 = DIM_SMApplicationRequestSummary   (SCD2,  DP_CreditApplication)
+      # 3 = FACT_SMApplicationRequest         (SCD2,  DP_CreditApplication)
+      # 4 = FACT_SMBridgeapplicationfacility  (SCD2,  DP_CreditApplication)
+      # 5 = DIM_product                       (full,  DP_CreditManagement)
+      # 6 = DIM_facility                      (SCD2,  DP_CreditManagement)
+      # 7 = DIM_snapshotdate                  (full,  DP_CreditManagement)
+      # 8 = FACT_CreditFacility               (append,DP_CreditManagement)
       tasks:
 
-        # ── APPLICATIONS ─────────────────────────────────────
-        - task_key: ingest_applications
+        # ══════════════ ORIGINATION ══════════════
+        - task_key: ingest_dim_app_request
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "APPLICATIONS"
+              table_name: "DIM_SMApplicationRequest"
               catalog: "{{job.parameters.catalog}}"
-              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
           environment_key: etl_default
 
-        - task_key: silver_applications
-          depends_on:
-            - task_key: ingest_applications
+        - task_key: silver_dim_app_request
+          depends_on: [{ task_key: ingest_dim_app_request }]
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
@@ -66,20 +72,17 @@ resources:
               ml_schema: "pl_scorecard"
           environment_key: etl_default
 
-        # ── FACILITIES ───────────────────────────────────────
-        - task_key: ingest_facilities
+        - task_key: ingest_dim_onyx
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "FACILITIES"
+              table_name: "DIM_SMOnyxApplication"
               catalog: "{{job.parameters.catalog}}"
-              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
           environment_key: etl_default
 
-        - task_key: silver_facilities
-          depends_on:
-            - task_key: ingest_facilities
+        - task_key: silver_dim_onyx
+          depends_on: [{ task_key: ingest_dim_onyx }]
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
@@ -92,20 +95,17 @@ resources:
               ml_schema: "pl_scorecard"
           environment_key: etl_default
 
-        # ── CREDIT_PERFORMANCE (append-only) ─────────────────
-        - task_key: ingest_credit_performance
+        - task_key: ingest_dim_summary
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "CREDIT_PERFORMANCE"
+              table_name: "DIM_SMApplicationRequestSummary"
               catalog: "{{job.parameters.catalog}}"
-              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
           environment_key: etl_default
 
-        - task_key: silver_credit_performance
-          depends_on:
-            - task_key: ingest_credit_performance
+        - task_key: silver_dim_summary
+          depends_on: [{ task_key: ingest_dim_summary }]
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
@@ -118,20 +118,17 @@ resources:
               ml_schema: "pl_scorecard"
           environment_key: etl_default
 
-        # ── SAS_FINAL_SCORES ─────────────────────────────────
-        - task_key: ingest_sas_scores
+        - task_key: ingest_fact_app_request
           notebook_task:
             notebook_path: ../notebooks/etl/01_ingest_snowflake.py
             base_parameters:
-              table_name: "SAS_FINAL_SCORES"
+              table_name: "FACT_SMApplicationRequest"
               catalog: "{{job.parameters.catalog}}"
-              snowflake_database: "{{job.parameters.snowflake_database}}"
               force_full_load: "{{job.parameters.force_full_load}}"
           environment_key: etl_default
 
-        - task_key: silver_sas_scores
-          depends_on:
-            - task_key: ingest_sas_scores
+        - task_key: silver_fact_app_request
+          depends_on: [{ task_key: ingest_fact_app_request }]
           notebook_task:
             notebook_path: ../notebooks/etl/02_bronze_to_silver.py
             base_parameters:
@@ -144,13 +141,134 @@ resources:
               ml_schema: "pl_scorecard"
           environment_key: etl_default
 
-        # ── SILVER -> GOLD (joins all four) ──────────────────
+        - task_key: ingest_fact_bridge
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "FACT_SMBridgeapplicationfacility"
+              catalog: "{{job.parameters.catalog}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_fact_bridge
+          depends_on: [{ task_key: ingest_fact_bridge }]
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "4"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
+          environment_key: etl_default
+
+        # ══════════════ MANAGEMENT ══════════════
+        - task_key: ingest_dim_product
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "DIM_product"
+              catalog: "{{job.parameters.catalog}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_dim_product
+          depends_on: [{ task_key: ingest_dim_product }]
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "5"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
+          environment_key: etl_default
+
+        - task_key: ingest_dim_facility
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "DIM_facility"
+              catalog: "{{job.parameters.catalog}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_dim_facility
+          depends_on: [{ task_key: ingest_dim_facility }]
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "6"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
+          environment_key: etl_default
+
+        - task_key: ingest_dim_snapshotdate
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "DIM_snapshotdate"
+              catalog: "{{job.parameters.catalog}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_dim_snapshotdate
+          depends_on: [{ task_key: ingest_dim_snapshotdate }]
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "7"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
+          environment_key: etl_default
+
+        - task_key: ingest_fact_credit_facility
+          notebook_task:
+            notebook_path: ../notebooks/etl/01_ingest_snowflake.py
+            base_parameters:
+              table_name: "FACT_CreditFacility"
+              catalog: "{{job.parameters.catalog}}"
+              force_full_load: "{{job.parameters.force_full_load}}"
+          environment_key: etl_default
+
+        - task_key: silver_fact_credit_facility
+          depends_on: [{ task_key: ingest_fact_credit_facility }]
+          notebook_task:
+            notebook_path: ../notebooks/etl/02_bronze_to_silver.py
+            base_parameters:
+              row_index: "8"
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+              bronze_schema: "bronze"
+              silver_schema: "silver"
+              gold_schema: "gold"
+              ml_schema: "pl_scorecard"
+          environment_key: etl_default
+
+        # ══════════════ SILVER -> GOLD ══════════════
         - task_key: silver_to_gold
           depends_on:
-            - task_key: silver_applications
-            - task_key: silver_facilities
-            - task_key: silver_credit_performance
-            - task_key: silver_sas_scores
+            - { task_key: silver_dim_app_request }
+            - { task_key: silver_dim_onyx }
+            - { task_key: silver_dim_summary }
+            - { task_key: silver_fact_app_request }
+            - { task_key: silver_fact_bridge }
+            - { task_key: silver_dim_product }
+            - { task_key: silver_dim_facility }
+            - { task_key: silver_dim_snapshotdate }
+            - { task_key: silver_fact_credit_facility }
           notebook_task:
             notebook_path: ../notebooks/etl/03_silver_to_gold.py
             base_parameters:

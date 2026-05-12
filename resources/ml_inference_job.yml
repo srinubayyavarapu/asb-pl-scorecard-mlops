@@ -4,7 +4,7 @@
 # Batch Scoring -> Monitoring
 # Loads @Champion from UC, scores TTD, runs drift detection.
 #
-# Usage: databricks bundle run ml_pl_inference --target dev
+# Usage: databricks bundle run ml_pl_inference --target stg
 # ============================================================
 
 resources:
@@ -44,6 +44,7 @@ resources:
             notebook_path: ../notebooks/ml/08_model_monitoring.py
             base_parameters:
               catalog: "${var.catalog}"
+              environment: "${var.environment}"
           environment_key: ml_default
 
       environments:

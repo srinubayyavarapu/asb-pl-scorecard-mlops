@@ -1,20 +1,18 @@
 # Databricks notebook source
 
 # MAGIC %md
-# MAGIC # 01 - Ingest from Snowflake to Bronze
+# MAGIC # 01 - Ingest from Snowflake to Bronze (JDBC only)
 # MAGIC **Generic, metadata-driven ingestion notebook.**
 # MAGIC
-# MAGIC Pass `table_name` parameter -> reads config from `master_table_inventory.csv` -> ingests that table into Bronze.
+# MAGIC Pass `table_name` parameter -> reads config from `master_table_inventory.csv` ->
+# MAGIC ingests that table into Bronze via the Spark Snowflake connector (JDBC).
 # MAGIC
 # MAGIC **Supports:**
 # MAGIC - `historical` - Full load (overwrite Bronze)
 # MAGIC - `incremental` - Watermark-based (append only new/changed rows)
-# MAGIC - `federation` - Lakehouse Federation (CTAS from foreign catalog)
-# MAGIC - `jdbc` - Spark Snowflake connector (direct JDBC read)
 # MAGIC
-# MAGIC **Usage:**
-# MAGIC - Set widget `table_name` = source table name (e.g., `HLACCTBASE_FINAL`)
-# MAGIC - Or pass via job parameter: `{"table_name": "HLACCTBASE_FINAL"}`
+# MAGIC **Prereq:** Databricks secret scope `asb_sf` must exist with keys
+# MAGIC `account`, `user`, `password`. See notebooks/setup/01_setup_snowflake_secrets.py.
 
 # COMMAND ----------
 
@@ -22,6 +20,10 @@ from pyspark.sql import functions as F
 from datetime import datetime
 import csv
 import os
+
+# COMMAND ----------
+
+# MAGIC %run ../utils/job_utils
 
 # COMMAND ----------
 
@@ -34,13 +36,10 @@ dbutils.widgets.text("table_name", "", "Source table name from master CSV")
 dbutils.widgets.text("force_full_load", "N", "Force full load for incremental tables (Y/N)")
 # Per-env target catalog — bundle passes ${var.catalog}. Empty = fall back to CSV.
 dbutils.widgets.text("catalog", "", "Target Unity Catalog (overrides CSV target_catalog)")
-# Per-env Snowflake DB — best-practice env isolation. Empty = fall back to CSV.
-dbutils.widgets.text("snowflake_database", "", "Snowflake database (overrides CSV source_database)")
 
 TABLE_NAME = dbutils.widgets.get("table_name").strip()
 FORCE_FULL = dbutils.widgets.get("force_full_load").strip().upper() == "Y"
 CATALOG_OVERRIDE = dbutils.widgets.get("catalog").strip()
-SF_DB_OVERRIDE = dbutils.widgets.get("snowflake_database").strip()
 
 if not TABLE_NAME:
     raise ValueError("table_name parameter is required")
@@ -127,32 +126,34 @@ for key, val in table_config.items():
 
 # COMMAND ----------
 
-# Source (Snowflake) — env-specific DB overrides CSV when bundle passes it
-SOURCE_DB = SF_DB_OVERRIDE or table_config["source_database"]
+# Source (Snowflake) — DB and schema come straight from CSV (different rows can target different DBs)
+SOURCE_DB     = table_config["source_database"]
 SOURCE_SCHEMA = table_config["source_schema"]
-if SF_DB_OVERRIDE:
-    print(f"  Source DB override (per-env): {SF_DB_OVERRIDE}")
-SOURCE_TABLE = table_config["source_table"]
-SOURCE_TYPE = table_config.get("source_type", "TABLE")
-INGESTION_MODE = table_config.get("ingestion_mode", "federation")
-LOAD_TYPE = table_config.get("load_type", "historical")
-PRIMARY_KEY = table_config.get("primary_key", "").strip() or None
+SOURCE_TABLE  = table_config["source_table"]
+LOAD_TYPE     = table_config.get("load_type", "historical")
+PRIMARY_KEY   = table_config.get("primary_key", "").strip() or None
 WATERMARK_COL = table_config.get("watermark_column", "").strip() or None
 
-# Target (Databricks) — bundle catalog var overrides CSV when passed
-TARGET_CATALOG = CATALOG_OVERRIDE or table_config.get("target_catalog", "").strip() or "dev_retail_modelling"
+# Target (Databricks) — bundle catalog var (widget) is the source of truth.
+# CSV `target_catalog` is a secondary fallback for non-bundle runs. No hardcoded
+# default — fail loudly so misconfigured runs don't silently land in a stale catalog.
+TARGET_CATALOG = CATALOG_OVERRIDE or table_config.get("target_catalog", "").strip()
+if not TARGET_CATALOG:
+    raise ValueError(
+        "No target catalog resolved. Pass `catalog` widget (bundle does this via "
+        "${var.catalog}) or set target_catalog in master_table_inventory.csv."
+    )
 if CATALOG_OVERRIDE:
     print(f"  Target catalog override (per-env): {CATALOG_OVERRIDE}")
 BRONZE_SCHEMA = table_config.get("target_bronze_schema", "").strip() or "bronze"
-BRONZE_TABLE = table_config["target_bronze_table"]
+BRONZE_TABLE  = table_config["target_bronze_table"]
 
-# Fully qualified paths
-SOURCE_FQN = f"snowflake_asb.{SOURCE_SCHEMA.lower()}.{SOURCE_TABLE.lower()}"
+# Fully qualified Bronze path
 BRONZE_FQN = f"{TARGET_CATALOG}.{BRONZE_SCHEMA}.{BRONZE_TABLE}"
 
-print(f"\nSource: {SOURCE_FQN}")
+print(f"\nSource: {SOURCE_DB}.{SOURCE_SCHEMA}.{SOURCE_TABLE}")
 print(f"Target: {BRONZE_FQN}")
-print(f"Mode: {INGESTION_MODE} | Load: {LOAD_TYPE}")
+print(f"Load:   {LOAD_TYPE}")
 
 # Switch Spark session to UC catalog — Celebal workspace default is
 # hive_metastore (disabled), which causes saveAsTable to fail with
@@ -166,105 +167,119 @@ spark.sql(f"USE SCHEMA {BRONZE_SCHEMA}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 3: Ingest to Bronze
+# MAGIC ## Step 3: Snowflake Connection (JDBC via secret scope)
 
 # COMMAND ----------
 
-def ingest_federation_historical(source_fqn, bronze_fqn):
-    """
-    Federation + Historical: Read from Snowflake foreign catalog, overwrite Bronze.
-    This is the default and most common path.
-    """
-    print(f"  Mode: FEDERATION | Load: HISTORICAL (full overwrite)")
+# Credentials from Databricks secret scope `asb_sf`.
+# ASB-prod note: replace password with key-pair auth (sfPrivateKey option).
+sf_options = {
+    "sfURL":       f"https://{dbutils.secrets.get('asb_sf', 'account')}.snowflakecomputing.com",
+    "sfUser":      dbutils.secrets.get("asb_sf", "user"),
+    "sfPassword":  dbutils.secrets.get("asb_sf", "password"),
+    "sfDatabase":  SOURCE_DB,
+    "sfSchema":    SOURCE_SCHEMA,
+    "sfWarehouse": "COMPUTE_WH",
+    "sfRole":      "ACCOUNTADMIN",
+}
 
-    df = spark.table(source_fqn)
-    source_count = df.count()
-    print(f"  Source rows: {source_count:,}")
 
-    # Add ingestion metadata
-    df_with_meta = (
+def read_snowflake(query=None, dbtable=None):
+    """Read from Snowflake via the Spark Snowflake connector. Pass either
+    `dbtable` for a full-table read or `query` for a filtered pushdown."""
+    reader = spark.read.format("snowflake").options(**sf_options)
+    if query:
+        reader = reader.option("query", query)
+    else:
+        reader = reader.option("dbtable", dbtable)
+    return reader.load()
+
+
+def add_ingestion_metadata(df, load_kind):
+    """Stamp the standard `_ingested_at` / `_source_*` / `_load_type` audit columns."""
+    return (
         df
         .withColumn("_ingested_at", F.current_timestamp())
         .withColumn("_source_system", F.lit("snowflake"))
-        .withColumn("_source_table", F.lit(source_fqn))
-        .withColumn("_load_type", F.lit("historical"))
+        .withColumn("_source_table", F.lit(f"{SOURCE_DB}.{SOURCE_SCHEMA}.{SOURCE_TABLE}"))
+        .withColumn("_load_type", F.lit(load_kind))
         .withColumn("_ingestion_id", F.lit(datetime.now().strftime("%Y%m%d_%H%M%S")))
     )
 
-    # Write: full overwrite
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 4: Ingest to Bronze
+
+# COMMAND ----------
+
+def ingest_historical():
+    """Historical: full overwrite from Snowflake."""
+    print(f"  Mode: JDBC | Load: HISTORICAL (full overwrite)")
+
+    df = read_snowflake(dbtable=SOURCE_TABLE)
+    source_count = df.count()
+    print(f"  Source rows: {source_count:,}")
+
+    df_with_meta = add_ingestion_metadata(df, load_kind="historical")
+
     (
         df_with_meta.write
         .format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "true")
-        .saveAsTable(bronze_fqn)
+        .saveAsTable(BRONZE_FQN)
     )
 
-    bronze_count = spark.table(bronze_fqn).count()
+    enable_iceberg_uniform(BRONZE_FQN)
+
+    bronze_count = spark.table(BRONZE_FQN).count()
     print(f"  Bronze rows: {bronze_count:,}")
     print(f"  Match: {'YES' if source_count == bronze_count else 'NO'}")
-
     return bronze_count
 
 
-def ingest_federation_incremental(source_fqn, bronze_fqn, watermark_col, primary_key):
-    """
-    Federation + Incremental: Read only new/changed rows using watermark column.
-    First run (table doesn't exist) -> full load.
-    Subsequent runs -> append rows WHERE watermark > last_value.
-    """
-    print(f"  Mode: FEDERATION | Load: INCREMENTAL (watermark: {watermark_col})")
+def ingest_incremental():
+    """Incremental: read only rows where watermark_column > max(watermark) in Bronze.
+    First run (Bronze missing) -> falls back to a full load."""
+    print(f"  Mode: JDBC | Load: INCREMENTAL (watermark: {WATERMARK_COL})")
 
-    table_exists = spark.catalog.tableExists(bronze_fqn)
-
-    if not table_exists or FORCE_FULL:
-        reason = "Force full load" if FORCE_FULL else "Bronze table doesn't exist (initial load)"
+    if not spark.catalog.tableExists(BRONZE_FQN) or FORCE_FULL:
+        reason = "Force full load" if FORCE_FULL else "Bronze does not exist (initial load)"
         print(f"  {reason} -> falling back to full load")
-        return ingest_federation_historical(source_fqn, bronze_fqn)
+        return ingest_historical()
 
-    # Get last watermark value from existing Bronze
-    last_watermark = spark.table(bronze_fqn).select(F.max(watermark_col)).collect()[0][0]
+    last_watermark = spark.table(BRONZE_FQN).select(F.max(WATERMARK_COL)).collect()[0][0]
     print(f"  Last watermark: {last_watermark}")
-
     if last_watermark is None:
-        print(f"  Watermark is NULL -> full load")
-        return ingest_federation_historical(source_fqn, bronze_fqn)
+        return ingest_historical()
 
-    # Read only new rows from Snowflake
-    df_new = (
-        spark.table(source_fqn)
-        .filter(F.col(watermark_col) > F.lit(str(last_watermark)))
+    # Pushdown: WHERE executes on Snowflake side, not Spark
+    query = (
+        f"SELECT * FROM {SOURCE_DB}.{SOURCE_SCHEMA}.{SOURCE_TABLE} "
+        f"WHERE {WATERMARK_COL} > '{last_watermark}'"
     )
-
+    df_new = read_snowflake(query=query)
     new_count = df_new.count()
     print(f"  New rows since {last_watermark}: {new_count:,}")
 
     if new_count == 0:
-        print(f"  No new data to ingest")
-        total = spark.table(bronze_fqn).count()
-        return total
+        return spark.table(BRONZE_FQN).count()
 
-    # Add metadata and append
-    df_with_meta = (
-        df_new
-        .withColumn("_ingested_at", F.current_timestamp())
-        .withColumn("_source_system", F.lit("snowflake"))
-        .withColumn("_source_table", F.lit(source_fqn))
-        .withColumn("_load_type", F.lit("incremental"))
-        .withColumn("_ingestion_id", F.lit(datetime.now().strftime("%Y%m%d_%H%M%S")))
-    )
+    df_with_meta = add_ingestion_metadata(df_new, load_kind="incremental")
 
     (
         df_with_meta.write
         .format("delta")
         .mode("append")
         .option("mergeSchema", "true")
-        .saveAsTable(bronze_fqn)
+        .saveAsTable(BRONZE_FQN)
     )
 
-    total = spark.table(bronze_fqn).count()
-    print(f"  Appended: {new_count:,} | Total Bronze: {total:,}")
+    enable_iceberg_uniform(BRONZE_FQN)
 
+    total = spark.table(BRONZE_FQN).count()
+    print(f"  Appended: {new_count:,} | Total Bronze: {total:,}")
     return total
 
 # COMMAND ----------
@@ -272,114 +287,20 @@ def ingest_federation_incremental(source_fqn, bronze_fqn, watermark_col, primary
 # Run ingestion based on config
 start_time = datetime.now()
 
-if INGESTION_MODE == "federation":
-    if LOAD_TYPE == "incremental" and WATERMARK_COL and not FORCE_FULL:
-        row_count = ingest_federation_incremental(SOURCE_FQN, BRONZE_FQN, WATERMARK_COL, PRIMARY_KEY)
-    else:
-        row_count = ingest_federation_historical(SOURCE_FQN, BRONZE_FQN)
-
-elif INGESTION_MODE == "jdbc":
-    # Real JDBC: uses the Spark Snowflake connector with credentials from
-    # Databricks Secret scope `asb_sf` (account, user, password).
-    # ASB-prod note: replace password with key-pair auth (sfPrivateKey option).
-    sf_options = {
-        "sfURL":       f"https://{dbutils.secrets.get('asb_sf', 'account')}.snowflakecomputing.com",
-        "sfUser":      dbutils.secrets.get("asb_sf", "user"),
-        "sfPassword":  dbutils.secrets.get("asb_sf", "password"),
-        "sfDatabase":  SOURCE_DB,
-        "sfSchema":    SOURCE_SCHEMA,
-        "sfWarehouse": "COMPUTE_WH",
-        "sfRole":      "ACCOUNTADMIN",
-    }
-
-    def _read_snowflake(query=None, dbtable=None):
-        reader = spark.read.format("snowflake").options(**sf_options)
-        if query:
-            reader = reader.option("query", query)
-        else:
-            reader = reader.option("dbtable", dbtable)
-        return reader.load()
-
-    def ingest_jdbc_historical(source_table, bronze_fqn):
-        print(f"  Mode: JDBC | Load: HISTORICAL (full overwrite)")
-        df = _read_snowflake(dbtable=source_table)
-        source_count = df.count()
-        print(f"  Source rows: {source_count:,}")
-
-        df_with_meta = (
-            df
-            .withColumn("_ingested_at", F.current_timestamp())
-            .withColumn("_source_system", F.lit("snowflake"))
-            .withColumn("_source_table", F.lit(f"{SOURCE_DB}.{SOURCE_SCHEMA}.{source_table}"))
-            .withColumn("_load_type", F.lit("historical"))
-            .withColumn("_ingestion_id", F.lit(datetime.now().strftime("%Y%m%d_%H%M%S")))
-        )
-        (
-            df_with_meta.write.format("delta").mode("overwrite")
-            .option("overwriteSchema", "true").saveAsTable(bronze_fqn)
-        )
-        bronze_count = spark.table(bronze_fqn).count()
-        print(f"  Bronze rows: {bronze_count:,}")
-        return bronze_count
-
-    def ingest_jdbc_incremental(source_table, bronze_fqn, watermark_col, primary_key):
-        print(f"  Mode: JDBC | Load: INCREMENTAL (watermark: {watermark_col})")
-
-        if not spark.catalog.tableExists(bronze_fqn) or FORCE_FULL:
-            reason = "Force full load" if FORCE_FULL else "Bronze does not exist (initial load)"
-            print(f"  {reason} -> falling back to full load")
-            return ingest_jdbc_historical(source_table, bronze_fqn)
-
-        last_watermark = spark.table(bronze_fqn).select(F.max(watermark_col)).collect()[0][0]
-        print(f"  Last watermark: {last_watermark}")
-        if last_watermark is None:
-            return ingest_jdbc_historical(source_table, bronze_fqn)
-
-        # Pushdown: WHERE filter executes on Snowflake side, not Spark
-        query = (
-            f"SELECT * FROM {SOURCE_DB}.{SOURCE_SCHEMA}.{source_table} "
-            f"WHERE {watermark_col} > '{last_watermark}'"
-        )
-        df_new = _read_snowflake(query=query)
-        new_count = df_new.count()
-        print(f"  New rows since {last_watermark}: {new_count:,}")
-        if new_count == 0:
-            return spark.table(bronze_fqn).count()
-
-        df_with_meta = (
-            df_new
-            .withColumn("_ingested_at", F.current_timestamp())
-            .withColumn("_source_system", F.lit("snowflake"))
-            .withColumn("_source_table", F.lit(f"{SOURCE_DB}.{SOURCE_SCHEMA}.{source_table}"))
-            .withColumn("_load_type", F.lit("incremental"))
-            .withColumn("_ingestion_id", F.lit(datetime.now().strftime("%Y%m%d_%H%M%S")))
-        )
-        (
-            df_with_meta.write.format("delta").mode("append")
-            .option("mergeSchema", "true").saveAsTable(bronze_fqn)
-        )
-        total = spark.table(bronze_fqn).count()
-        print(f"  Appended: {new_count:,} | Total Bronze: {total:,}")
-        return total
-
-    if LOAD_TYPE == "incremental" and WATERMARK_COL and not FORCE_FULL:
-        row_count = ingest_jdbc_incremental(SOURCE_TABLE, BRONZE_FQN, WATERMARK_COL, PRIMARY_KEY)
-    else:
-        row_count = ingest_jdbc_historical(SOURCE_TABLE, BRONZE_FQN)
-
+if LOAD_TYPE == "incremental" and WATERMARK_COL and not FORCE_FULL:
+    row_count = ingest_incremental()
 else:
-    raise ValueError(f"Unknown ingestion_mode '{INGESTION_MODE}'")
+    row_count = ingest_historical()
 
 elapsed = (datetime.now() - start_time).total_seconds()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 4: Validation
+# MAGIC ## Step 5: Validation
 
 # COMMAND ----------
 
-# Validate Bronze table
 bronze_df = spark.table(BRONZE_FQN)
 
 print(f"\n{'='*50}")
@@ -402,7 +323,6 @@ for mc in meta_cols:
 
 # COMMAND ----------
 
-# Return result for downstream tasks
 result = f"SUCCESS|{BRONZE_TABLE}|{row_count}|{LOAD_TYPE}|{elapsed:.1f}s"
 print(f"\n{result}")
 dbutils.notebook.exit(result)

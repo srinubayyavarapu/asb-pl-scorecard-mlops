@@ -8,9 +8,9 @@
 # MAGIC
 # MAGIC | Catalog | Write Access | Read Access |
 # MAGIC |---------|-------------|-------------|
-# MAGIC | `dev_retail_modelling` | Data scientists, service principals | All dev users |
-# MAGIC | `stg_retail_modelling` | CI/CD service principal only | Dev users (for debugging test failures) |
-# MAGIC | `prod_retail_modelling` | CD service principal + admins only | Dev users (read-only for debugging & model comparison) |
+# MAGIC | `dev_retail_modeling` | Data scientists, service principals | All dev users |
+# MAGIC | `stg_retail_modeling` | CI/CD service principal only | Dev users (for debugging test failures) |
+# MAGIC | `prod_retail_modeling` | CD service principal + admins only | Dev users (read-only for debugging & model comparison) |
 # MAGIC
 # MAGIC ## What This Enables
 # MAGIC
@@ -22,7 +22,7 @@
 # MAGIC
 # MAGIC ## Prerequisites
 # MAGIC - Must be run by a UC admin or account admin
-# MAGIC - All three catalogs (dev_retail_modelling, stg_retail_modelling, prod_retail_modelling) must exist
+# MAGIC - All three catalogs (dev_retail_modeling, stg_retail_modeling, prod_retail_modeling) must exist
 # MAGIC - Service principal for CI/CD must exist
 
 # COMMAND ----------
@@ -32,9 +32,9 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("dev_catalog", "dev_retail_modelling", "Development catalog")
-dbutils.widgets.text("stg_catalog", "stg_retail_modelling", "Staging catalog")
-dbutils.widgets.text("prod_catalog", "prod_retail_modelling", "Production catalog")
+dbutils.widgets.text("dev_catalog", "dev_retail_modeling", "Development catalog")
+dbutils.widgets.text("stg_catalog", "stg_retail_modeling", "Staging catalog")
+dbutils.widgets.text("prod_catalog", "prod_retail_modeling", "Production catalog")
 dbutils.widgets.text("cicd_sp", "", "CI/CD Service Principal (application ID or name)")
 dbutils.widgets.text("ds_group", "data_scientists", "Data scientists group name")
 

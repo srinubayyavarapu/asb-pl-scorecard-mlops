@@ -174,8 +174,14 @@ scd2_col      = row["orderby_col"]   if pd.notna(row.get("orderby_col"))   else 
 # Build fully qualified table paths.
 # Catalog ALWAYS comes from the env widget (bundle passes per-target ${var.catalog}) —
 # CSV's target_catalog column is per-env wrong by design and only used as a hard fallback.
-# Schemas may be CSV-overridden since they're env-stable (bronze etc.).
-catalog       = env["catalog"] or (row["target_catalog"] if pd.notna(row.get("target_catalog")) else "dev_retail_modelling")
+# No hardcoded default — fail loudly so misconfigured runs don't land in the wrong catalog.
+catalog = env["catalog"] or (row["target_catalog"] if pd.notna(row.get("target_catalog")) else "")
+catalog = str(catalog).strip()
+if not catalog:
+    raise ValueError(
+        "No catalog resolved. Pass `catalog` widget (bundle does this via "
+        "${var.catalog}) or set target_catalog in master_table_inventory.csv."
+    )
 bronze_schema = row["target_bronze_schema"] if pd.notna(row.get("target_bronze_schema")) else env["bronze_schema"]
 silver_schema = row["target_silver_schema"] if pd.notna(row.get("target_silver_schema")) else env["silver_schema"]
 
@@ -409,6 +415,8 @@ def write_silver_historical(df, silver_tbl, primary_key=None):
         .saveAsTable(silver_tbl)
     )
 
+    enable_iceberg_uniform(silver_tbl)
+
     return spark.table(silver_tbl).count(), "FULL_OVERWRITE"
 
 
@@ -441,6 +449,8 @@ def write_silver_incremental_append(df, silver_tbl):
             .saveAsTable(silver_tbl)
         )
         logger.info(f"    Appended {df.count():,} new rows to Silver")
+
+    enable_iceberg_uniform(silver_tbl)
 
     return spark.table(silver_tbl).count(), "APPEND_ONLY"
 
@@ -497,6 +507,7 @@ def write_silver_incremental_scd2(df_incoming, silver_tbl, primary_key, merge_ti
             .option("overwriteSchema", "true")
             .saveAsTable(silver_tbl)
         )
+        enable_iceberg_uniform(silver_tbl)
         count = spark.table(silver_tbl).count()
         return count, "INITIAL_LOAD"
 
@@ -613,6 +624,7 @@ def write_silver_incremental_scd2(df_incoming, silver_tbl, primary_key, merge_ti
             .mode("append")
             .saveAsTable(silver_tbl)
         )
+        enable_iceberg_uniform(silver_tbl)
         logger.info(f"    Inserted {insert_count} new current row(s) into Silver")
 
     # ── SUMMARY ───────────────────────────────────────────────────────────────

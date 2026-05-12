@@ -19,12 +19,16 @@ import numpy as np
 
 # COMMAND ----------
 
+# MAGIC %run ../utils/job_utils
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Config
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
@@ -217,6 +221,7 @@ if all_woe:
         .format("delta").mode("overwrite").option("overwriteSchema", "true")
         .saveAsTable(WOE_TABLE)
     )
+    enable_iceberg_uniform(WOE_TABLE)
     print(f"WoE/IV written: {WOE_TABLE}  ({len(combined):,} bands)")
 
 # COMMAND ----------
@@ -241,6 +246,8 @@ df_all = (
     .format("delta").mode("overwrite").option("overwriteSchema", "true")
     .saveAsTable(FEATURE_TABLE)
 )
+
+enable_iceberg_uniform(FEATURE_TABLE)
 
 # Register UC Feature Table — adds PK so fe.log_model() can capture lineage
 try:

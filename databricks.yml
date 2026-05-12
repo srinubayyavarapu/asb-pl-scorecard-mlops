@@ -8,14 +8,17 @@ bundle:
 
 variables:
   environment:
-    description: "Deployment environment (dev / stg / prod)"
-    default: dev
+    description: "Deployment environment (stg / prod)"
+    default: stg
   catalog:
-    description: "Unity Catalog — one per environment"
-    default: dev_retail_modelling
-  snowflake_database:
-    description: "Snowflake source database for this environment (one DB per env, UC best practice)"
-    default: "DP_CREDITMANAGEMENT_DEV"
+    description: "Unity Catalog — one per environment (each target overrides)"
+    default: ""
+  snowflake_db_application:
+    description: "Snowflake origination DB (FACT_SM* / DIM_SM* tables)"
+    default: "DP_CreditApplication"
+  snowflake_db_management:
+    description: "Snowflake account-management DB (FACT_CreditFacility / DIM_facility / DIM_product / DIM_snapshotdate)"
+    default: "DP_CreditManagement"
   notify_email:
     description: "Email for ML pipeline notifications"
     default: "bayyavarapusrinu1@gmail.com"
@@ -65,28 +68,18 @@ sync:
 
 targets:
 
-  dev:
+  stg:
     default: true
     mode: development
     variables:
-      environment: dev
-      catalog: dev_retail_modelling
-      snowflake_database: DP_CREDITMANAGEMENT_DEV
-    workspace:
-      host: https://adb-7405618935161265.5.azuredatabricks.net
-
-  stg:
-    variables:
       environment: stg
-      catalog: stg_retail_modelling
-      snowflake_database: DP_CREDITMANAGEMENT_STG
+      catalog: stg_retail_modeling
     workspace:
-      host: https://adb-7405610706859452.12.azuredatabricks.net
+      host: https://adb-7405618551622593.13.azuredatabricks.net
 
   prod:
     variables:
       environment: prod
-      catalog: prod_retail_modelling
-      snowflake_database: DP_CREDITMANAGEMENT_PRD
+      catalog: prod_retail_modeling
     workspace:
-      host: https://adb-7405614555582503.3.azuredatabricks.net
+      host: https://adb-7405609196403590.10.azuredatabricks.net

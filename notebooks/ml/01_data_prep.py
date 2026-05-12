@@ -19,12 +19,16 @@ from datetime import datetime
 
 # COMMAND ----------
 
+# MAGIC %run ../utils/job_utils
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Config
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
@@ -135,6 +139,8 @@ df_final.groupBy("_population", TARGET).count() \
     .option("overwriteSchema", "true")
     .saveAsTable(OUTPUT_TABLE)
 )
+
+enable_iceberg_uniform(OUTPUT_TABLE)
 
 final_count = spark.table(OUTPUT_TABLE).count()
 
