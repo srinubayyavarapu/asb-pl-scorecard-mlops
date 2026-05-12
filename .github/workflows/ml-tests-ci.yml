@@ -4,9 +4,12 @@
 # Triggers on push to `main`.
 #   1. Validate bundle for stg
 #   2. Deploy bundle to stg
-#   3. Run the ETL job in stg and wait for completion (real
-#      end-to-end test — Snowflake -> Bronze -> Silver -> Gold)
-#   4. Auto-create PR main -> release if tests pass
+#   3. Run ml_pl_unit_tests job in stg and wait (fast pytest gate)
+#   4. If green -> auto-create PR main -> release
+#
+# Integration tests (ETL + Training + Inference) are commented out
+# below for budget — uncomment any of them when you want CI to run
+# the real pipelines too.
 #
 # GitHub Environment: `staging`
 #   Secrets expected on the staging environment:
@@ -14,18 +17,16 @@
 #     DATABRICKS_TOKEN  = (PAT or service-principal token)
 # ============================================================
 
-name: ML CI - Deploy + ETL Test in Staging
+name: ML CI - Deploy + Unit Tests in Staging
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'notebooks/ml/**'
-      - 'notebooks/etl/**'
-      - 'notebooks/utils/**'
-      - 'resources/ml_*.yml'
-      - 'resources/etl_*.yml'
+      - 'notebooks/**'
+      - 'tests/**'
+      - 'resources/*.yml'
       - 'configs/ingestion/**'
       - 'databricks.yml'
       - '.github/workflows/ml-tests-ci.yml'
@@ -42,9 +43,9 @@ env:
 jobs:
 
   deploy-and-test-stg:
-    name: Deploy to stg + run ETL pipeline
+    name: Deploy to stg + run unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     environment: staging
     env:
       DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
@@ -68,15 +69,39 @@ jobs:
       - name: Deploy bundle to stg
         run: databricks bundle deploy -t stg
 
-      - name: Run ETL pipeline in stg (foreground — fails the CI if the job fails)
-        run: databricks bundle run etl_pl_application_pipeline -t stg
+      - name: Run unit_tests job in stg (waits — fails CI on any test failure)
+        run: databricks bundle run ml_pl_unit_tests -t stg
 
-      - name: Test summary
+      # ─── Integration tests — commented for budget conservation ──────────
+      # Uncomment any of the steps below to have CI also run the real
+      # pipelines in stg. Each adds 5-10 min and stg-workspace compute cost.
+      #
+      # - name: Run ETL pipeline in stg (Snowflake -> Bronze -> Silver -> Gold)
+      #   run: databricks bundle run etl_pl_application_pipeline -t stg
+      #
+      # - name: Run ML training in stg (registers @Challenger)
+      #   run: databricks bundle run ml_pl_training -t stg
+      #
+      # - name: Run ML inference in stg (scores TTD, runs monitor)
+      #   run: databricks bundle run ml_pl_inference -t stg
+      # ────────────────────────────────────────────────────────────────────
+
+      - name: CI summary
         run: |
           echo "=========================================="
-          echo "Staging deployment + ETL test passed"
+          echo "Staging CI passed: bundle deployed + unit tests green"
           echo "=========================================="
-          echo "Snowflake -> Bronze -> Silver -> Gold flow verified."
+          echo ""
+          echo "Job definitions in stg workspace:"
+          echo "  - etl_pl_application_pipeline   (Snowflake -> Bronze -> Silver -> Gold)"
+          echo "  - ml_pl_unit_tests              (pytest gate)"
+          echo "  - ml_pl_training                (registers @Challenger)"
+          echo "  - ml_pl_deployment              (gated on approval=approved UC tag)"
+          echo "  - ml_pl_inference               (uses @Champion)"
+          echo ""
+          echo "ETL / training / inference are commented in this workflow."
+          echo "Uncomment to run them in CI; otherwise trigger them on demand"
+          echo "via databricks bundle run."
 
   create-release-pr:
     name: Auto-create PR main -> release
@@ -93,21 +118,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open PR main -> release (skip if one is already open)
+      - name: Open PR main -> release (skip if main has no commits ahead of release)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
+          # Skip cleanly when nothing to PR — keeps CI green on no-op pushes
+          ahead=$(git rev-list --count origin/release..origin/main)
+          if [ "$ahead" = "0" ]; then
+            echo "main has 0 commits ahead of release; nothing to PR."
+            exit 0
+          fi
           existing=$(gh pr list --base release --head main --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
-            echo "PR #$existing already open between main and release. Nothing to do."
+            echo "PR #$existing already open between main and release."
             exit 0
           fi
           gh pr create \
             --base release \
             --head main \
             --title "Release: Deploy to Production (CI passed - run #${{ github.run_number }})" \
-            --body "Auto-created by CI after staging deployment + ETL test passed.
+            --body "Auto-created by CI after staging deploy + unit tests passed.
 
           Build:  ${{ github.run_number }}
           Commit: ${{ github.sha }}

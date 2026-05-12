@@ -32,11 +32,11 @@ sync:
   # listed below stays in the git repo for reference but is not pushed
   # to the workspace.
   exclude:
-    # Documentation, reference data, tests
+    # Documentation, reference data
+    # (tests/** is INCLUDED — the unit_tests job runs pytest against it)
     - docs/**
     - data/**
     - reference/**
-    - tests/**
     - workflow-manager.md
     - CLAUDE.md
     - README.md

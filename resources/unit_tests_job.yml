@@ -1,0 +1,42 @@
+# ============================================================
+# Unit Tests Job — PL Application Scorecard
+# ============================================================
+# Runs the pytest suite under `tests/` against repo utilities + CSV.
+# Designed to be invoked from CI on every push to main (cheap, fast).
+#
+# Usage:
+#   databricks bundle run ml_pl_unit_tests --target stg
+# ============================================================
+
+resources:
+  jobs:
+
+    ml_pl_unit_tests:
+      name: "asb-ml-pl-unit-tests-${var.environment}"
+      description: "PL Application Scorecard — pytest unit tests (fast CI gate)"
+      tags:
+        product: "personal_loan"
+        pipeline: "tests"
+        scorecard_variant: "application"
+
+      parameters:
+        - name: catalog
+          default: "${var.catalog}"
+        - name: environment
+          default: "${var.environment}"
+
+      tasks:
+        - task_key: run_unit_tests
+          notebook_task:
+            notebook_path: ../notebooks/tests/run_unit_tests.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              environment: "${var.environment}"
+          environment_key: tests_default
+
+      environments:
+        - environment_key: tests_default
+          spec:
+            client: "2"
+            dependencies:
+              - pytest
