@@ -14,8 +14,8 @@ import mlflow
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
-dbutils.widgets.text("environment", "dev", "Environment (dev/stg/prod)")
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
+dbutils.widgets.text("environment", "", "Environment (stg/prod) — bundle passes ${var.environment}")
 dbutils.widgets.text("model_name", "", "UC model (auto-set by Deployment Jobs)")
 dbutils.widgets.text("model_version", "", "Version (auto-set by Deployment Jobs)")
 

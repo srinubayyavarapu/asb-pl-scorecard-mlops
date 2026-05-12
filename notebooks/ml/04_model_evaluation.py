@@ -22,12 +22,16 @@ import pandas as pd
 
 # COMMAND ----------
 
+# MAGIC %run ../utils/job_utils
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Config
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
 dbutils.widgets.text("model_name", "", "UC model (auto-set by Deployment Jobs)")
 dbutils.widgets.text("model_version", "", "Version (auto-set by Deployment Jobs)")
 
@@ -85,9 +89,15 @@ selected_features = [
 
 
 def to_xy_with_meta(spark_df):
-    """Convert to numeric X/y plus DP3 month-end and sample_flag for slicing."""
-    cols = selected_features + [TARGET, "_population", "dp3_application", "sample_flag",
-                                  "sas_final_p_good", "application_id"]
+    """Convert to numeric X/y plus DP3 month-end and sample_flag for slicing.
+    sas_final_p_good is optional — only present when SAS reference scores were
+    ingested (legacy 4-table schema). The 9-table client schema doesn't include
+    SAS scores, so we just skip it when absent."""
+    available = set(spark_df.columns)
+    base_cols = selected_features + [TARGET, "_population", "dp3_application",
+                                     "sample_flag", "application_id"]
+    optional_cols = [c for c in ["sas_final_p_good"] if c in available]
+    cols = base_cols + optional_cols
     pdf = spark_df.select(*cols).toPandas().dropna(subset=selected_features)
     X = pdf[selected_features].copy()
     for c in X.columns:
@@ -183,7 +193,13 @@ for r in by_pop:
 
 # Note: model PD = P(Bad) = 1 - P(Good); SAS p_good is P(Good).
 # So we compare model_p_good (= 1 - PD) against sas_final_p_good.
-sas_pop = pdf_eval.dropna(subset=["sas_final_p_good"])
+# SAS reference scores are only present in the legacy 4-table source schema;
+# skip cleanly when the column is absent (current 9-table client schema).
+if "sas_final_p_good" in pdf_eval.columns:
+    sas_pop = pdf_eval.dropna(subset=["sas_final_p_good"])
+else:
+    sas_pop = pdf_eval.iloc[0:0]
+
 if len(sas_pop) > 0:
     model_p_good = 1 - sas_pop["_pd"].values
     sas_p_good   = sas_pop["sas_final_p_good"].values
@@ -197,7 +213,7 @@ if len(sas_pop) > 0:
     print(f"  Max abs diff:            {max_abs_diff}")
 else:
     correlation = mean_diff = max_abs_diff = None
-    print("[SAS Reconciliation] no SAS scores available")
+    print("[SAS Reconciliation] no SAS scores available — skipping (expected on 9-table client schema)")
 
 # COMMAND ----------
 
@@ -274,6 +290,7 @@ sdf = spark.createDataFrame([Row(
 
 mode = "append" if spark.catalog.tableExists(EVAL_TABLE) else "overwrite"
 sdf.write.format("delta").mode(mode).saveAsTable(EVAL_TABLE)
+enable_iceberg_uniform(EVAL_TABLE)
 print(f"\nResults written: {EVAL_TABLE}")
 
 # COMMAND ----------

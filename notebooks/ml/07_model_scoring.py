@@ -23,12 +23,16 @@ import pandas as pd
 
 # COMMAND ----------
 
+# MAGIC %run ../utils/job_utils
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Config
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
 catalog = dbutils.widgets.get("catalog").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
@@ -172,8 +176,8 @@ scored_df = spark.createDataFrame(pdf)
     .saveAsTable(OUTPUT_TABLE)
 )
 
-# Enable CDF for Lakehouse Monitoring
-spark.sql(f"ALTER TABLE {OUTPUT_TABLE} SET TBLPROPERTIES (delta.enableChangeDataFeed = true)")
+# Iceberg UniForm so Snowflake can read this, plus CDF for Lakehouse Monitoring
+enable_iceberg_uniform(OUTPUT_TABLE, extra_props={"delta.enableChangeDataFeed": "true"})
 
 final_count = spark.table(OUTPUT_TABLE).count()
 

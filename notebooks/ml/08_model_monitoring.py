@@ -24,13 +24,19 @@ import pandas as pd
 
 # COMMAND ----------
 
+# MAGIC %run ../utils/job_utils
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Config
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "dev_retail_modelling", "Unity Catalog")
-catalog = dbutils.widgets.get("catalog").strip()
+dbutils.widgets.text("catalog", "", "Unity Catalog (bundle passes ${var.catalog})")
+dbutils.widgets.text("environment", "", "Bundle environment slug (stg/prod)")
+catalog     = dbutils.widgets.get("catalog").strip()
+environment = dbutils.widgets.get("environment").strip()
 spark.sql(f"USE CATALOG {catalog}")
 
 MODEL_NAME       = "application_scorecard"
@@ -40,9 +46,7 @@ SCORED_TABLE     = f"{catalog}.pl_scorecard.scored_output"
 MONITORING_TABLE = f"{catalog}.pl_scorecard.monitoring_log"
 BASELINE_TABLE   = f"{catalog}.pl_scorecard.pl_monitoring_baseline"
 
-# Derive environment from catalog (dev_retail_modelling -> dev, stg_retail_modelling -> stg, prod_retail_modelling -> prd)
-env = catalog.replace("asb_", "")
-TRAINING_JOB = f"asb-ml-pl-training-{env}"
+TRAINING_JOB = f"asb-ml-pl-training-{environment}"
 
 PSI_WARNING   = 0.10
 PSI_CRITICAL  = 0.25
@@ -193,10 +197,12 @@ for pop in ["HOL", "OOT"]:
 sdf = spark.createDataFrame(pd.DataFrame(rows))
 mode = "append" if spark.catalog.tableExists(MONITORING_TABLE) else "overwrite"
 sdf.write.format("delta").mode(mode).saveAsTable(MONITORING_TABLE)
+enable_iceberg_uniform(MONITORING_TABLE)
 print(f"\nMonitoring log: {MONITORING_TABLE} ({len(rows)} metrics)")
 
 if not spark.catalog.tableExists(BASELINE_TABLE):
     sdf.write.format("delta").mode("overwrite").saveAsTable(BASELINE_TABLE)
+    enable_iceberg_uniform(BASELINE_TABLE)
     print(f"Baseline saved: {BASELINE_TABLE}")
 
 # COMMAND ----------

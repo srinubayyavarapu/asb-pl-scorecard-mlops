@@ -47,27 +47,17 @@ def get_env_config():
     Returns:
         dict: Environment configuration with catalog, schemas, etc.
     """
-    try:
-        env_config = {
-            "environment": dbutils.widgets.get("environment"),
-            "catalog": dbutils.widgets.get("catalog"),
-            "bronze_schema": dbutils.widgets.get("bronze_schema"),
-            "silver_schema": dbutils.widgets.get("silver_schema"),
-            "gold_schema": dbutils.widgets.get("gold_schema"),
-            "ml_schema": dbutils.widgets.get("ml_schema"),
-        }
-    except Exception:
-        # Default values for local/interactive development
-        env_config = {
-            "environment": "dev",
-            "catalog": "dev_retail_modelling",
-            "bronze_schema": "bronze",
-            "silver_schema": "silver",
-            "gold_schema": "gold",
-            "ml_schema": "pl_scorecard",
-        }
-
-    return env_config
+    # No hardcoded fallback — bundle MUST pass these via job parameters / widgets.
+    # An interactive run that hasn't set them will surface the missing-widget
+    # exception instead of silently targeting a stale catalog.
+    return {
+        "environment":  dbutils.widgets.get("environment"),
+        "catalog":      dbutils.widgets.get("catalog"),
+        "bronze_schema": dbutils.widgets.get("bronze_schema"),
+        "silver_schema": dbutils.widgets.get("silver_schema"),
+        "gold_schema":  dbutils.widgets.get("gold_schema"),
+        "ml_schema":    dbutils.widgets.get("ml_schema"),
+    }
 
 # COMMAND ----------
 
@@ -81,11 +71,11 @@ def get_table_path(env_config, layer, table_name):
         table_name: Name of the table
 
     Returns:
-        str: Fully qualified path like "dev_retail_modelling.silver.customer_data"
+        str: Fully qualified path like "<catalog>.silver.customer_data"
 
     Example:
         path = get_table_path(env, "silver", "customer_data")
-        # Returns: "dev_retail_modelling.silver.customer_data"
+        # Returns: "<catalog>.silver.customer_data"
     """
     schema_key = f"{layer}_schema" if layer != "ml" else "ml_schema"
     schema = env_config[schema_key]
