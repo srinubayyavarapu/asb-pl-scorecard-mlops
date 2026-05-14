@@ -2,7 +2,7 @@
 # Credit Card Behaviour Scorecard (demo bundle)
 # ASB-SAS-DBX-Migration
 # Test CI/CD
-# Test Pipeline
+# Made changes to test the demo 
 
 bundle:
   name: asb-credit-risk-mlops
