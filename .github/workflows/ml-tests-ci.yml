@@ -20,16 +20,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'notebooks/ml/**'
-      - 'notebooks/etl/**'
-      - 'notebooks/utils/**'
-      - 'resources/ml_*.yml'
-      - 'resources/etl_*.yml'
-      - 'configs/ingestion/**'
-      - 'databricks.yml'
-      - '.github/workflows/ml-tests-ci.yml'
-
+    # NOTE: path filter intentionally removed. CI fires on every push
+    # to main so the demo never silently skips because the push touched
+    # a file outside the filter (README, scripts, etc.).
   workflow_dispatch: {}
 
 concurrency:
@@ -93,11 +86,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open PR main -> release (skip if one is already open)
+      - name: Open PR main -> release (skip if nothing to PR or one is already open)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
+          # Skip cleanly when main has 0 commits ahead of release — otherwise
+          # `gh pr create` errors with "No commits between..." and fails CI.
+          ahead=$(git rev-list --count origin/release..origin/main)
+          if [ "$ahead" = "0" ]; then
+            echo "main has 0 commits ahead of release; nothing to PR. Skipping."
+            exit 0
+          fi
           existing=$(gh pr list --base release --head main --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
             echo "PR #$existing already open between main and release. Nothing to do."
