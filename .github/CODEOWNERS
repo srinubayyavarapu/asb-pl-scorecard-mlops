@@ -1,0 +1,15 @@
+# ============================================================
+# CODEOWNERS — auto-requested reviewers per file pattern.
+# ============================================================
+# Any PR touching a matched path will automatically add the listed
+# user(s) as requested reviewers. They must approve before the PR
+# can satisfy branch protection's "required review" rule.
+#
+# Syntax: <pattern> <owner1> [<owner2> ...]
+# Latest matching line wins, so put broader rules first.
+# Owners may be GitHub usernames (@user) or team slugs (@org/team).
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# ============================================================
+
+# Catch-all: every PR routes to the model-risk reviewer.
+*  @SrinuB5657
