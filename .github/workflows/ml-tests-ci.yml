@@ -20,16 +20,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'notebooks/ml/**'
-      - 'notebooks/etl/**'
-      - 'notebooks/utils/**'
-      - 'resources/ml_*.yml'
-      - 'resources/etl_*.yml'
-      - 'configs/ingestion/**'
-      - 'databricks.yml'
-      - '.github/workflows/ml-tests-ci.yml'
-
+    # NOTE: path filter intentionally removed. CI fires on every push to
+    # main so the demo behavior is consistent — any change, however small,
+    # triggers validate -> deploy stg -> run ETL.
   workflow_dispatch: {}
 
 concurrency:

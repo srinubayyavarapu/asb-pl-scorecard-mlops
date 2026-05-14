@@ -28,16 +28,9 @@ on:
   push:
     branches:
       - release
-    paths:
-      - 'notebooks/ml/**'
-      - 'notebooks/etl/**'
-      - 'notebooks/utils/**'
-      - 'resources/ml_*.yml'
-      - 'resources/etl_*.yml'
-      - 'configs/ingestion/**'
-      - 'databricks.yml'
-      - '.github/workflows/ml-bundle-cd.yml'
-
+    # NOTE: path filter intentionally removed. CD fires on every push to
+    # release so deployment to prod is predictable regardless of which
+    # files changed.
   workflow_dispatch: {}
 
 concurrency:
