@@ -51,6 +51,7 @@ SEED         = 42
 print(f"Model:   {MODEL_NAME}")
 print(f"Source:  {SOURCE_TABLE}")
 print(f"Output:  {OUTPUT_TABLE}")
+print(f"Seed:    {SEED}")
 
 # COMMAND ----------
 
