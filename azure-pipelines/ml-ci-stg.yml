@@ -1,0 +1,89 @@
+# ============================================================
+# ASB PL Application Scorecard - ADO CI Pipeline (Staging)
+# ============================================================
+# Mirror of .github/workflows/ml-tests-ci.yml on Azure DevOps.
+#
+# Trigger: push to `main`
+#   1. Validate bundle for stg
+#   2. Deploy bundle to stg
+#   3. Run the ETL job in stg and wait for completion
+#      (Snowflake -> Bronze -> Silver -> Gold)
+#
+# NOT included (GitHub-only): auto-PR main -> release. The GitHub
+# Action still owns branch promotion. If/when ADO Repos becomes the
+# source of truth, add an `az repos pr create` step at the end.
+#
+# ADO setup (one-time, done in the ADO project UI):
+#   1. Library -> Variable Groups -> create `asb-databricks-stg`
+#      Variables (DATABRICKS_TOKEN as secret):
+#        DATABRICKS_HOST  = https://adb-7405618551622593.13.azuredatabricks.net
+#        DATABRICKS_TOKEN = <PAT or SP token>
+#      (Optional) Link the group to Azure Key Vault for token rotation.
+#   2. Pipelines -> Environments -> create `staging`
+#      Add approvals/checks here if you want a gate (mirrors the
+#      GitHub `staging` environment).
+#   3. Pipelines -> New pipeline -> point to this file.
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr: none   # CI does not run on PRs; only on push to main
+
+variables:
+  - group: asb-databricks-stg
+  - name: DBX_CLI_VERSION
+    value: '0.298.0'
+
+stages:
+  - stage: ci_stg
+    displayName: CI - Deploy to stg + Run ETL
+    lockBehavior: sequential
+    jobs:
+      - deployment: deploy_and_test_stg
+        displayName: Validate, deploy, run ETL
+        environment: staging
+        pool:
+          vmImage: ubuntu-latest
+        timeoutInMinutes: 45
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  fetchDepth: 1
+
+                - script: |
+                    set -e
+                    curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+                    unzip -o dbx.zip -d /tmp/dbx
+                    sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+                    databricks --version
+                  displayName: Install Databricks CLI v$(DBX_CLI_VERSION)
+
+                - script: databricks bundle validate -t stg
+                  displayName: Validate bundle for stg
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: databricks bundle deploy -t stg
+                  displayName: Deploy bundle to stg
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: databricks bundle run etl_pl_application_pipeline -t stg
+                  displayName: Run ETL pipeline in stg (foreground)
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: |
+                    echo "=========================================="
+                    echo "Staging deployment + ETL test passed"
+                    echo "=========================================="
+                    echo "Snowflake -> Bronze -> Silver -> Gold flow verified."
+                  displayName: Test summary

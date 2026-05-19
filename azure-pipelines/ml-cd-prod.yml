@@ -1,0 +1,93 @@
+# ============================================================
+# ASB PL Application Scorecard - ADO CD Pipeline (Production)
+# ============================================================
+# Mirror of .github/workflows/ml-bundle-cd.yml on Azure DevOps.
+#
+# Trigger: push to `release`
+#   1. Validate bundle for prod
+#   2. Deploy bundle (ETL + ML job definitions) to prod
+#
+# Production jobs run on their own schedules:
+#   - ETL:        monthly  (drives bronze refresh from Snowflake)
+#   - Training:   1st of each month
+#   - Deployment: triggered by MLflow Deployment Jobs on new model version
+#                 (requires `approval=approved` UC tag - APRA gate)
+#   - Inference:  weekly  (Monday)
+#
+# ADO setup (one-time, done in the ADO project UI):
+#   1. Library -> Variable Groups -> create `asb-databricks-prod`
+#      Variables (DATABRICKS_TOKEN as secret):
+#        DATABRICKS_HOST  = https://adb-7405609196403590.10.azuredatabricks.net
+#        DATABRICKS_TOKEN = <CD service principal token preferred over PAT>
+#      Recommended: link to Azure Key Vault for token rotation.
+#   2. Pipelines -> Environments -> create `production`
+#      Required protection rules (mirror GitHub):
+#        - Approvals: 1+ designated approver(s)
+#        - Branch control: only allow `release` to deploy
+#   3. Pipelines -> New pipeline -> point to this file.
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - release
+
+pr: none   # CD does not run on PRs; only on push to release
+
+variables:
+  - group: asb-databricks-prod
+  - name: DBX_CLI_VERSION
+    value: '0.298.0'
+
+stages:
+  - stage: cd_prod
+    displayName: CD - Deploy to Production
+    lockBehavior: sequential
+    jobs:
+      - deployment: deploy_prod
+        displayName: Production Deployment
+        environment: production
+        pool:
+          vmImage: ubuntu-latest
+        timeoutInMinutes: 30
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  fetchDepth: 1
+
+                - script: |
+                    set -e
+                    curl -fsSL "https://github.com/databricks/cli/releases/download/v${DBX_CLI_VERSION}/databricks_cli_${DBX_CLI_VERSION}_linux_amd64.zip" -o dbx.zip
+                    unzip -o dbx.zip -d /tmp/dbx
+                    sudo mv /tmp/dbx/databricks /usr/local/bin/databricks
+                    databricks --version
+                  displayName: Install Databricks CLI v$(DBX_CLI_VERSION)
+
+                - script: databricks bundle validate -t prod
+                  displayName: Validate bundle for prod
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: databricks bundle deploy -t prod
+                  displayName: Deploy bundle to prod (ETL + ML job definitions)
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - script: |
+                    echo "=========================================="
+                    echo "Production deployment complete"
+                    echo "=========================================="
+                    echo ""
+                    echo "Job definitions deployed to prod workspace:"
+                    echo "  - etl_pl_application_pipeline   (Snowflake -> Bronze -> Silver -> Gold)"
+                    echo "  - ml_pl_training                (registers @Challenger)"
+                    echo "  - ml_pl_deployment              (gated on approval=approved UC tag)"
+                    echo "  - ml_pl_inference               (uses @Champion)"
+                    echo ""
+                    echo "Jobs execute on their own schedules. Model promotion"
+                    echo "requires manual UC tag approval per APRA / RBNZ validation."
+                  displayName: Deployment summary
