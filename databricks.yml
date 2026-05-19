@@ -46,6 +46,7 @@ sync:
     - scripts/**
     # CI/CD and developer tooling
     - .github/**
+    - azure-pipelines/**
     - .claude/**
     - .vscode/**
     - .idea/**
